@@ -1,0 +1,12 @@
+{
+  "name": "grep",
+  "description": "GREP deep research skills - give your AI agent research superpowers. Submit research jobs, poll for results, and get sourced intelligence on any topic.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Parcha Labs",
+    "url": "https://grep.ai"
+  },
+  "homepage": "https://grep.ai",
+  "repository": "https://github.com/parcha-ai/grep-skills",
+  "license": "MIT"
+}
