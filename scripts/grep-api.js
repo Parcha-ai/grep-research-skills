@@ -13,8 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// TODO: Confirm these endpoints with AJ
-const GREP_API_BASE = process.env.GREP_API_BASE || 'https://preview.grep.ai/api';
+const GREP_API_BASE = process.env.GREP_API_BASE || 'https://preview-api.grep.ai';
 const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.grep', 'session.json');
 
 // Get session token
@@ -52,27 +51,43 @@ async function api(method, endpoint, body) {
 
 async function submitResearch(query, options = {}) {
   const body = {
-    query,
+    question: query,
     depth: options.depth || 'deep',
-    ...options,
   };
+  if (options.approach) body.approach = options.approach;
 
-  const result = await api('POST', '/grep/jobs', body);
+  const result = await api('POST', '/api/v1/research', body);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function checkStatus(jobId) {
-  const result = await api('GET', `/grep/jobs/${jobId}`);
+  const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function getResult(jobId) {
-  const result = await api('GET', `/grep/jobs/${jobId}`);
-  console.log(JSON.stringify(result, null, 2));
+  const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
+  
+  // Extract report from status_messages
+  const messages = result.status_messages || [];
+  let report = null;
+  for (const m of messages) {
+    const text = m?.content?.text || '';
+    if (text && (text.includes('##') || text.length > 500)) {
+      report = text;
+      break;
+    }
+  }
+  
+  if (report) {
+    console.log(`Status: ${result.status}\n\n${report}`);
+  } else {
+    console.log(JSON.stringify(result, null, 2));
+  }
 }
 
 async function listJobs() {
-  const result = await api('GET', '/grep/jobs');
+  const result = await api('GET', '/api/v1/research');
   console.log(JSON.stringify(result, null, 2));
 }
 

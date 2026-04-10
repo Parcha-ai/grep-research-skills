@@ -25,7 +25,7 @@ GREP research is NOT synchronous. NEVER block-wait for results.
 node ${CLAUDE_SKILL_DIR}/../scripts/grep-api.js research "$ARGUMENTS"
 ```
 
-This returns a JSON object with `job_id` and `status: "pending"`.
+This returns a JSON object with `job_id` and `status: "queued"`.
 
 ### Step 2: Inform the user and wait
 
