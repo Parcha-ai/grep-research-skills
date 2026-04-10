@@ -142,7 +142,7 @@ async function login(email) {
   
   try {
     // Step 1: Send OTP
-    await descopeApi('/v1/auth/otp/email/compose/sign-up-or-in', {
+    await descopeApi('/v1/auth/otp/signup-in/email', {
       loginId: email,
     });
     
