@@ -150,6 +150,11 @@ async function waitlist() {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function onboarding() {
+  const result = await api('GET', '/grep/onboarding/status');
+  console.log(JSON.stringify(result, null, 2));
+}
+
 async function paygActivate(amountCents) {
   if (!amountCents || isNaN(amountCents)) {
     console.error('Usage: billing.js payg <amount_cents>');
@@ -185,6 +190,9 @@ switch (command) {
   case 'waitlist':
     waitlist().catch(e => { console.error(e.message); process.exit(1); });
     break;
+  case 'onboarding':
+    onboarding().catch(e => { console.error(e.message); process.exit(1); });
+    break;
   case 'checkout':
     checkout(args[0], args[1]).catch(e => { console.error(e.message); process.exit(1); });
     break;
@@ -198,6 +206,7 @@ switch (command) {
     console.error('  node billing.js tiers                         List available plans');
     console.error('  node billing.js status                        Current subscription');
     console.error('  node billing.js waitlist                      Check waitlist status');
+    console.error('  node billing.js onboarding                   Check onboarding status');
     console.error('  node billing.js checkout <tier> [month|year]  Create Stripe checkout');
     console.error('  node billing.js payg <amount_cents>           Activate PAYG wallet');
     process.exit(1);

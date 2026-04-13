@@ -6,7 +6,9 @@ disable-model-invocation: true
 
 # GREP Login
 
-Authenticate the user with their GREP account using email OTP. Uses a two-step flow so you never need to deal with interactive stdin prompts.
+Authenticate the user with their GREP account. Supports two modes:
+- **Device flow** (recommended for new users): Opens the browser, user signs up/logs in on the web, session syncs back to the terminal automatically.
+- **OTP flow** (fallback): Email-based one-time password, fully in-terminal. Use when browser isn't available.
 
 ## Resolve the script path
 
@@ -16,9 +18,60 @@ The skill directory may be symlinked, so `${CLAUDE_SKILL_DIR}/..` can resolve to
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 ```
 
-If that's too clunky, just use the absolute path in whichever location the repo was installed — on most systems it's under `~/.claude/skills/grep-login/../scripts/auth.js` AFTER resolving the symlink.
+## Choose auth method
 
-## Steps
+**Default to OTP flow** — it's proven and works everywhere. Skip straight to Step 1.
+
+Enchanted Links (magic link click-to-auth) are available as an experimental alternative but require the `/auth/verify` frontend route to be deployed. Only offer enchanted links if the user specifically asks for it.
+
+### If Enchanted Link (experimental):
+
+#### Step 0a: Get the user's email
+
+Use **AskUserQuestion**:
+- Header: "Email"
+- Question: "What email address for your GREP account?"
+
+#### Step 0b: Send the enchanted link
+
+```bash
+node "${SCRIPTS_DIR}/auth.js" enchanted-send "<email>"
+```
+
+This returns JSON: `{ "ok": true, "pendingRef": "...", "linkId": "42", "maskedEmail": "..." }`
+
+Tell the user: "Check your email and **click link #42** (the number matching your link ID). This will authenticate your terminal AND open the GREP onboarding page in your browser."
+
+#### Step 0c: Poll for completion
+
+Run in background (`run_in_background: true`):
+
+```bash
+node "${SCRIPTS_DIR}/auth.js" enchanted-poll "<pendingRef>"
+```
+
+Run with `timeout: 660000` (11 minutes). The command polls Descope every 2 seconds until the user clicks the link. Output:
+- Success: `{"ok": true, "email": "...", "firstSeen": true/false}` — session saved
+- Timeout (exit code 2): `{"ok": false, "status": "timeout"}`
+
+**What happens when they click:** The enchanted link takes them to the verify page, which:
+1. Verifies the token (unblocks the terminal poll)
+2. Establishes a web session in their browser
+3. Redirects them to `grep.ai/start` for onboarding
+
+So one click does everything — the terminal gets authenticated and the user lands on onboarding.
+
+If the poll succeeds, check `firstSeen`:
+- **`firstSeen: true`** — new user, they're currently going through onboarding in their browser. Proceed to Step 6 to poll for onboarding completion.
+- **`firstSeen: false`** — returning user, skip to Step 7 (check billing status).
+
+If the poll times out, tell the user and offer the OTP flow instead.
+
+### If OTP flow:
+
+Continue with Step 1 below.
+
+## Steps (OTP Flow)
 
 ### Step 1: Get the user's email
 
@@ -64,9 +117,57 @@ This is also non-interactive. Output:
 - **Failure with "One time code is invalid":** The code was wrong or expired. Loop back to Step 2 to send a fresh code.
 - **Other failure:** Report the error to the user and suggest they try again or check grep.ai status.
 
-### Step 6: Check account status and suggest plan
+### Step 6: Check onboarding status
 
-After successful authentication, check whether the user is waitlisted, then check their billing status:
+After successful authentication, check whether the user has completed onboarding at grep.ai:
+
+```bash
+node "${SCRIPTS_DIR}/billing.js" onboarding
+```
+
+This returns JSON with a `has_completed_onboarding` field (true/false).
+
+**If `has_completed_onboarding` is `true`:** Skip straight to Step 7.
+
+**If `has_completed_onboarding` is `false`:**
+
+The user hasn't finished onboarding on the web yet. Open the onboarding page for them:
+
+```bash
+open "https://preview.grep.ai/start"
+```
+
+On Linux use `xdg-open`, on WSL use `wslview`.
+
+Tell the user clearly — they need to know the terminal is waiting and they should come back:
+
+> "I've opened grep.ai/start in your browser. Complete the onboarding there — it only takes a minute.
+>
+> **Once you're done, come back here.** I'm polling in the background and will detect when onboarding is complete."
+
+Then **poll in the background** for onboarding completion. Use a loop that checks every 15 seconds (up to 5 minutes):
+
+```bash
+for i in $(seq 1 20); do
+  sleep 15
+  RESULT=$(node "${SCRIPTS_DIR}/billing.js" onboarding 2>/dev/null)
+  COMPLETED=$(echo "$RESULT" | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).has_completed_onboarding)}catch{console.log('false')}})")
+  if [ "$COMPLETED" = "true" ]; then
+    echo '{"onboarding_complete": true}'
+    exit 0
+  fi
+done
+echo '{"onboarding_complete": false, "timed_out": true}'
+```
+
+Run this as a **background Bash command** (`run_in_background: true`) so the user doesn't have to stare at a spinner. When the background task completes:
+
+- **If `onboarding_complete: true`:** Tell the user "Onboarding complete! Welcome to GREP. You're all set to start researching." and proceed to Step 7.
+- **If `timed_out: true`:** Tell the user "No rush — finish onboarding at grep.ai/start when you're ready, then come back here and run `/grep-login` again. I'll pick up where we left off."
+
+### Step 7: Check account status and suggest plan
+
+Check whether the user is waitlisted, then check their billing status:
 
 ```bash
 node "${SCRIPTS_DIR}/billing.js" waitlist

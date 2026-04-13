@@ -19,8 +19,15 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
+const { execSync } = require('child_process');
+
 const DESCOPE_PROJECT_ID = 'P38Xct9AhA95T0MU5T8g7o9V9886';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
+const GREP_API_BASE = process.env.GREP_API_BASE || 'https://preview-api.grep.ai';
+const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://preview.grep.ai';
+// Enchanted link verify page — requires /auth/verify route on the frontend.
+// Currently experimental; OTP flow is the default.
+const ENCHANTED_LINK_VERIFY_URL = process.env.ENCHANTED_LINK_VERIFY_URL || `${GREP_BASE_URL}/auth/verify`;
 const GREP_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.grep');
 const SESSION_FILE = path.join(GREP_DIR, 'session.json');
 
@@ -274,6 +281,153 @@ async function logout() {
   console.log(JSON.stringify({ ok: true, message: 'Logged out' }));
 }
 
+// === Enchanted Link Flow (click-to-auth, no code typing) ===
+
+// Open a URL in the user's default browser
+function openBrowser(url) {
+  try {
+    const platform = process.platform;
+    if (platform === 'darwin') {
+      execSync(`open "${url}"`, { stdio: 'ignore' });
+    } else if (platform === 'win32') {
+      execSync(`start "" "${url}"`, { stdio: 'ignore', shell: true });
+    } else {
+      try {
+        execSync(`xdg-open "${url}"`, { stdio: 'ignore' });
+      } catch {
+        try {
+          execSync(`wslview "${url}"`, { stdio: 'ignore' });
+        } catch {
+          return false;
+        }
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Send an enchanted link email. Returns { pendingRef, linkId, maskedEmail }.
+async function enchantedSend(email) {
+  if (!email) {
+    console.error('Error: email required. Usage: auth.js enchanted-send <email>');
+    process.exit(1);
+  }
+  try {
+    const data = await descopeApi('/v1/auth/enchantedlink/signup-in/email', {
+      loginId: email,
+      redirectUrl: ENCHANTED_LINK_VERIFY_URL,
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      pendingRef: data.pendingRef,
+      linkId: data.linkId,
+      maskedEmail: data.maskedEmail,
+    }));
+  } catch (err) {
+    console.error(`Failed to send enchanted link: ${err.message}`);
+    console.log(JSON.stringify({ ok: false, error: err.message }));
+    process.exit(1);
+  }
+}
+
+// Poll for enchanted link session completion.
+// Polls /v1/auth/enchantedlink/pending-session until the user clicks the link.
+async function enchantedPoll(pendingRef, options = {}) {
+  if (!pendingRef) {
+    console.error('Error: pendingRef required. Usage: auth.js enchanted-poll <pendingRef>');
+    process.exit(1);
+  }
+  const maxWait = options.maxWait || 600; // 10 minutes
+  const interval = options.interval || 2000; // 2 seconds (Descope recommends 1-2s)
+  const startedAt = Date.now();
+
+  while ((Date.now() - startedAt) / 1000 < maxWait) {
+    try {
+      const res = await fetch(`${DESCOPE_BASE_URL}/v1/auth/enchantedlink/pending-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DESCOPE_PROJECT_ID}`,
+        },
+        body: JSON.stringify({ pendingRef }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sessionJwt) {
+          const session = {
+            email: data.user?.email || data.user?.loginIds?.[0] || '',
+            sessionJwt: data.sessionJwt,
+            refreshJwt: data.refreshJwt,
+            user: data.user || {},
+            authenticatedAt: new Date().toISOString(),
+            authMethod: 'enchanted_link',
+          };
+          saveSession(session);
+
+          console.log(JSON.stringify({
+            ok: true,
+            email: session.email,
+            firstSeen: data.firstSeen || false,
+          }));
+          return;
+        }
+      }
+
+      // Not ready yet — keep polling
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      if (elapsed % 10 === 0) { // Log every 10s to avoid noise
+        process.stderr.write(`[auth] Waiting for link click... (${elapsed}s)\n`);
+      }
+    } catch (e) {
+      process.stderr.write(`[auth] Poll error: ${e.message}\n`);
+    }
+
+    await new Promise(r => setTimeout(r, interval));
+  }
+
+  console.log(JSON.stringify({
+    ok: false,
+    status: 'timeout',
+    message: `Timed out after ${maxWait}s waiting for enchanted link click.`,
+  }));
+  process.exit(2);
+}
+
+// Combined enchanted link flow: ask for email, send link, display linkId, poll.
+// This is the primary auth command for install + login.
+async function enchantedLogin(email) {
+  if (!email) {
+    email = await prompt('Enter your email: ');
+  }
+  if (!email) {
+    console.error('Error: Email is required');
+    process.exit(1);
+  }
+
+  process.stderr.write(`[auth] Sending enchanted link to ${email}...\n`);
+
+  try {
+    const data = await descopeApi('/v1/auth/enchantedlink/signup-in/email', {
+      loginId: email,
+      redirectUrl: ENCHANTED_LINK_VERIFY_URL,
+    });
+
+    process.stderr.write(`\n`);
+    process.stderr.write(`  Check your email and click link #${data.linkId}\n`);
+    process.stderr.write(`  Waiting for you to click...\n\n`);
+
+    // Poll until the user clicks
+    await enchantedPoll(data.pendingRef, { maxWait: 600, interval: 2000 });
+  } catch (err) {
+    console.error(`Enchanted link failed: ${err.message}`);
+    console.log(JSON.stringify({ ok: false, error: err.message }));
+    process.exit(1);
+  }
+}
+
 // === Main ===
 
 const [,, command, ...args] = process.argv;
@@ -297,19 +451,34 @@ switch (command) {
   case 'logout':
     logout().catch(e => { console.error(e.message); process.exit(1); });
     break;
+  case 'enchanted-login':
+    enchantedLogin(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'enchanted-send':
+    enchantedSend(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'enchanted-poll':
+    if (!args[0]) { console.error('Usage: auth.js enchanted-poll <pendingRef>'); process.exit(1); }
+    enchantedPoll(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
   default:
     console.error('GREP Skills Authentication');
     console.error('');
-    console.error('Two-step flow (AI-agent friendly):');
-    console.error('  node auth.js send-code <email>        Send OTP, exit');
-    console.error('  node auth.js verify <email> <code>    Submit OTP, save session');
+    console.error('Enchanted Link (click-to-auth, recommended):');
+    console.error('  node auth.js enchanted-login [email]    Send link, wait for click (combined)');
+    console.error('  node auth.js enchanted-send <email>     Send enchanted link, exit');
+    console.error('  node auth.js enchanted-poll <ref>       Poll for link click completion');
     console.error('');
-    console.error('One-step flow (terminal, interactive):');
-    console.error('  node auth.js login [email]            Prompt for email + code via stdin');
+    console.error('OTP flow (AI-agent two-step):');
+    console.error('  node auth.js send-code <email>          Send OTP code, exit');
+    console.error('  node auth.js verify <email> <code>      Submit OTP, save session');
+    console.error('');
+    console.error('OTP flow (terminal, interactive):');
+    console.error('  node auth.js login [email]              Prompt for email + code via stdin');
     console.error('');
     console.error('Session management:');
-    console.error('  node auth.js status                   Check session status');
-    console.error('  node auth.js token                    Print access token');
-    console.error('  node auth.js logout                   Clear session');
+    console.error('  node auth.js status                     Check session status');
+    console.error('  node auth.js token                      Print access token');
+    console.error('  node auth.js logout                     Clear session');
     process.exit(1);
 }

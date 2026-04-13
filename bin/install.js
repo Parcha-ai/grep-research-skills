@@ -12,10 +12,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const HOME = process.env.HOME || process.env.USERPROFILE;
 const INSTALL_DIR = path.join(HOME, '.grep-research-skills');
 const GREP_DIR = path.join(HOME, '.grep');
+const SESSION_FILE = path.join(GREP_DIR, 'session.json');
+const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://preview.grep.ai';
 
 // Where we're copying FROM (the npm package or local repo)
 const PKG_ROOT = path.resolve(__dirname, '..');
@@ -62,9 +65,13 @@ function symlinkSkill(skillDir, targetDir, skillName) {
 
 function main() {
   console.log('');
-  console.log('  ╔════════════════════════════════════════════╗');
-  console.log('  ║  GREP Research Skills Installer            ║');
-  console.log('  ╚════════════════════════════════════════════╝');
+  console.log('   ██████╗ ██████  ███████ ██████  ');
+  console.log('  ██       ██   ██ ██      ██   ██ ');
+  console.log('  ██  ████ ██████  █████   ██████  ');
+  console.log('  ██    ██ ██   ██ ██      ██      ');
+  console.log('   ██████  ██   ██ ███████ ██      ');
+  console.log('');
+  console.log('  Research Skills Installer');
   console.log('');
 
   // 1. Check Node version
@@ -161,12 +168,55 @@ function main() {
     ok(`Installed for: ${installedTo.join(', ')}`);
   }
 
-  console.log('');
-  log('Next steps:');
-  log('  1. Run /grep-login in your AI agent to authenticate');
-  log('  2. Run /research "your topic" to start researching');
-  console.log('');
-  ok('Setup complete!');
+  // 6. First-time user onboarding — open /start and tell user to authenticate via /grep-login
+  const hasSession = fs.existsSync(SESSION_FILE);
+  if (!hasSession) {
+    console.log('');
+    log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    log('  Welcome to GREP! Let\'s get you set up.');
+    log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('');
+
+    // Open onboarding page in browser
+    try {
+      const platform = process.platform;
+      if (platform === 'darwin') {
+        execSync(`open "${GREP_BASE_URL}/start"`, { stdio: 'ignore' });
+      } else if (platform === 'win32') {
+        execSync(`start "" "${GREP_BASE_URL}/start"`, { stdio: 'ignore', shell: true });
+      } else {
+        try { execSync(`xdg-open "${GREP_BASE_URL}/start"`, { stdio: 'ignore' }); }
+        catch { try { execSync(`wslview "${GREP_BASE_URL}/start"`, { stdio: 'ignore' }); } catch {} }
+      }
+      ok(`Opened ${GREP_BASE_URL}/start in your browser`);
+    } catch {
+      log(`Open this URL in your browser: ${GREP_BASE_URL}/start`);
+    }
+
+    console.log('');
+    log('  1. Complete signup & onboarding at grep.ai (in your browser)');
+    log('  2. Come back here and run /grep-login to connect your terminal');
+    log('  3. Run /research "your topic" to start researching');
+    console.log('');
+    log('Skills installed:');
+    log('  /research "topic"              Deep research with citations (~5 min)');
+    log('  /quick-research "topic"        Fast fact check (~25s)');
+    log('  /grep-plan "topic"             Research best practices before you /plan');
+    log('  /grep-skill-creator "desc"     Create new skills powered by research');
+    log('  /grep-upgrade                  Choose your plan (Free / Pro / Ultra)');
+    console.log('');
+    ok('Setup complete — finish signup in your browser, then come back here!');
+  } else {
+    console.log('');
+    log('Skills installed:');
+    log('  /research "topic"              Deep research with citations (~5 min)');
+    log('  /quick-research "topic"        Fast fact check (~25s)');
+    log('  /grep-plan "topic"             Research best practices before you /plan');
+    log('  /grep-skill-creator "desc"     Create new skills powered by research');
+    log('  /grep-upgrade                  Choose your plan (Free / Pro / Ultra)');
+    console.log('');
+    ok('Setup complete!');
+  }
   console.log('');
 }
 

@@ -31,6 +31,8 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 | `/quick-research <topic>` | ~25s | Fast fact check — version lookups, API endpoint checks, quick pre-code sanity checks |
 | `/research <topic>` | ~5 min | **Default.** Deep research with sourced citations. Great for investigating APIs/libraries before writing code |
 | `/ultra-research <topic>` | up to 1 hour | Exhaustive investigations — security audits, legal research, full ecosystem surveys |
+| `/grep-plan <topic>` | ~5 min | Research-informed planning — investigates best practices with your codebase as context before you `/plan` |
+| `/grep-skill-creator <description>` | ~5 min | Create a new SKILL.md for any agent skill, powered by deep research on the target domain |
 | `/grep-login` | — | Authenticate with your GREP account (email OTP) |
 | `/grep-upgrade` | — | Choose or change your subscription plan (Free / Pro / Ultra / PAYG) |
 | `/grep-status` | — | Check account status and recent jobs |
@@ -88,6 +90,8 @@ grep-research-skills/
 │   ├── research/SKILL.md         # Deep research (~5 min)
 │   ├── quick-research/SKILL.md   # Fast fact check (~25s)
 │   ├── ultra-research/SKILL.md   # Exhaustive research (up to 1 hr)
+│   ├── grep-plan/SKILL.md        # Research-informed planning
+│   ├── grep-skill-creator/SKILL.md # Research-powered skill generator
 │   ├── grep-login/SKILL.md       # Authentication
 │   ├── grep-upgrade/SKILL.md     # Plan selection & Stripe checkout
 │   └── grep-status/SKILL.md      # Status & job checking

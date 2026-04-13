@@ -36,6 +36,95 @@ Reach for `/research` whenever you're about to write code against something unfa
 
 **Rule of thumb:** if you'd normally guess, research instead. A 2-minute research call prevents 30 minutes of debugging bad assumptions.
 
+## Clarify before researching
+
+Before submitting the query, apply the **99% rule**: if 99 random people typed this exact query, would they all want the same research? If yes, proceed directly. If no, ask 1-2 clarification questions using **AskUserQuestion**.
+
+**When to clarify:**
+- Ambiguous entities: "research Conductor" — the npm library? The orchestration tool? The music role?
+- Vague scope: "research authentication" — for what platform? What auth method? What threat model?
+- Missing context: "research the API" — which API? What operations? What language/SDK?
+
+**When to skip clarification:**
+- Specific queries: "research Stripe Connect Express account onboarding flow"
+- Clear context: the conversation already established what they're working on
+- Quick lookups: factual questions with obvious intent
+
+**Question format:**
+- Header: "Research scope" (or "Clarification")
+- Keep to 1-2 questions maximum — don't interrogate
+- Provide 2-4 concrete options based on likely interpretations, plus "Other" (automatic)
+- If the user's query is ambiguous in multiple ways, combine into a single multi-aspect question rather than asking serially
+
+Incorporate the user's answers into the query you pass to the research command.
+
+## Gather context (makes research 10x more actionable)
+
+Before submitting, gather relevant context from the codebase and conversation to send alongside the query. The GREP API accepts a `context` field — this is the difference between getting a generic blog-post answer vs. getting implementation-ready specifics tailored to the user's stack.
+
+**Always gather context when the research is for code/implementation.** Skip context only for pure factual lookups (e.g., "what year was React released?").
+
+```bash
+CONTEXT_FILE=$(mktemp /tmp/grep-research-context.XXXXXX)
+```
+
+### What to include:
+
+**1. Relevant existing code** — if the user is researching how to do X and they already have code that does something related, include it. This tells GREP what patterns, libraries, and conventions are in play.
+
+Example: researching "Descope device flow for CLI auth" → include the existing `auth.js` that already does Descope OTP. GREP will return endpoints and code that match the existing implementation style.
+
+```bash
+# Read files directly related to the research topic
+cat path/to/relevant/file.js >> "$CONTEXT_FILE"
+```
+
+**2. Project stack** — dependencies and manifest so GREP knows what language/framework/versions to target.
+
+```bash
+for manifest in package.json pyproject.toml requirements.txt Cargo.toml go.mod; do
+  if [ -f "$manifest" ]; then
+    echo "=== $manifest ===" >> "$CONTEXT_FILE"
+    head -40 "$manifest" >> "$CONTEXT_FILE"
+    echo "" >> "$CONTEXT_FILE"
+  fi
+done
+```
+
+**3. Project conventions** — CLAUDE.md or similar config files.
+
+```bash
+if [ -f CLAUDE.md ]; then
+  echo "=== PROJECT CONVENTIONS ===" >> "$CONTEXT_FILE"
+  head -60 CLAUDE.md >> "$CONTEXT_FILE"
+  echo "" >> "$CONTEXT_FILE"
+fi
+```
+
+**4. Conversation context** — if the user has been discussing a specific problem, summarise the key constraints, decisions, and relevant details as free text at the top of the context file.
+
+### How to decide what's relevant:
+
+Use your judgement. Ask yourself: "If a human researcher were doing this research for me, what would I want them to know about my project to give me the most useful answer?"
+
+- Researching "Redis caching patterns" → include existing cache code, config, and which Redis client is installed
+- Researching "Stripe webhook verification" → include existing Stripe integration code, webhook handler, and Express/Fastify middleware patterns
+- Researching "best testing framework for Vue 3" → include package.json and existing test files
+- Researching "history of the Roman Empire" → skip context, it's not code-related
+
+### Refine the query
+
+Based on the context you've gathered and any clarification answers, **refine the raw query** into a more specific research question. Don't just pass through `$ARGUMENTS` verbatim — enrich it.
+
+Example:
+- Raw: "Descope CLI auth bridging"
+- Refined: "How to bridge Descope web browser authentication with a CLI terminal session. Specifically: does Descope support OAuth device flow (RFC 8628), enchanted links for cross-device auth, or session token transfer? We currently use Descope OTP (project ID P38Xct9AhA95T0MU5T8g7o9V9886) with raw fetch to api.descope.com. Need REST API endpoints, not SDK-only solutions."
+
+The refined query should include:
+- The specific question (not just a topic)
+- What form of answer is most useful (endpoints, code patterns, comparisons, etc.)
+- Any constraints (language, framework, existing patterns to match)
+
 ## Prerequisites
 
 The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
@@ -52,7 +141,12 @@ If the Monitor tool is available, use it to stream live status updates to the us
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --max-wait=540 2>&1
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
+```
+
+**Clean up after the research completes:**
+```bash
+rm -f "$CONTEXT_FILE"
 ```
 
 Use Monitor with `timeout_ms: 560000` and `persistent: false`. The command writes live status updates (thinking, searching, tool use) to stderr and the final report to stdout. With `2>&1` both streams are merged so Monitor captures everything.
@@ -74,8 +168,10 @@ The user invoked `/research` because they need an answer. A research job that co
 If Monitor is not available, fall back to blocking Bash:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --max-wait=540
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE"
 ```
+
+Clean up after: `rm -f "$CONTEXT_FILE"`
 
 **IMPORTANT:** Invoke this bash command with a tool `timeout` of exactly `560000` (560 seconds / ~9.3 min). That's the maximum headroom you can give — Claude Code's bash tool caps at 10 minutes (600000). The `--max-wait=540` leaves 20s of slack for Node to print results and exit cleanly before bash would kill it.
 
