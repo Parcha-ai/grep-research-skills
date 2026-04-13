@@ -32,6 +32,7 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 | `/research <topic>` | ~5 min | **Default.** Deep research with sourced citations. Great for investigating APIs/libraries before writing code |
 | `/ultra-research <topic>` | up to 1 hour | Exhaustive investigations — security audits, legal research, full ecosystem surveys |
 | `/grep-login` | — | Authenticate with your GREP account (email OTP) |
+| `/grep-upgrade` | — | Choose or change your subscription plan (Free / Pro / Ultra / PAYG) |
 | `/grep-status` | — | Check account status and recent jobs |
 
 ## Getting Started
@@ -88,10 +89,12 @@ grep-research-skills/
 │   ├── quick-research/SKILL.md   # Fast fact check (~25s)
 │   ├── ultra-research/SKILL.md   # Exhaustive research (up to 1 hr)
 │   ├── grep-login/SKILL.md       # Authentication
+│   ├── grep-upgrade/SKILL.md     # Plan selection & Stripe checkout
 │   └── grep-status/SKILL.md      # Status & job checking
 ├── scripts/
 │   ├── auth.js                   # Descope OTP headless auth
-│   └── grep-api.js               # GREP API client
+│   ├── grep-api.js               # GREP API client
+│   └── billing.js                # Billing & Stripe checkout client
 ├── bin/
 │   └── install.js                # npx installer
 ├── setup                         # Shell installer (git clone fallback)

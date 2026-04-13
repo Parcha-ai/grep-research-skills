@@ -60,9 +60,32 @@ This is also non-interactive. Output:
 
 ### Step 5: Confirm or recover
 
-- **Success:** Tell the user "Authenticated as <email>. You can now use `/research` to run deep research."
+- **Success:** Move to Step 6 (check account status).
 - **Failure with "One time code is invalid":** The code was wrong or expired. Loop back to Step 2 to send a fresh code.
 - **Other failure:** Report the error to the user and suggest they try again or check grep.ai status.
+
+### Step 6: Check account status and suggest plan
+
+After successful authentication, check whether the user is waitlisted, then check their billing status:
+
+```bash
+node "${SCRIPTS_DIR}/billing.js" waitlist
+```
+
+This returns JSON: `{ "on_waitlist": true/false }`.
+
+- **If `on_waitlist` is `true`:** Tell the user "You're currently on the GREP waitlist — we'll email you at <email> when your account is activated. You can check back anytime with `/grep-status`." Do NOT suggest `/grep-upgrade` or `/research`. Stop here.
+
+- **If `on_waitlist` is `false`:** Check billing status:
+
+```bash
+node "${SCRIPTS_DIR}/billing.js" status
+```
+
+Based on the response:
+
+- **Free tier** (`tier: "free"`): Tell the user "Authenticated as <email>. You have 100 free credits to try GREP — enough for about 10 deep research jobs. Run `/research "topic"` to get started, or `/grep-upgrade` to choose a plan."
+- **Already on a paid plan:** Tell the user "Authenticated as <email>. You're on the {tier} plan with {credits_remaining} credits remaining. Run `/research "topic"` to get started."
 
 ## Troubleshooting
 

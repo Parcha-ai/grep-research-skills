@@ -132,10 +132,13 @@ async function checkStatus(jobId) {
 async function getResult(jobId) {
   const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
   const report = extractReport(result);
+  const jobUrl = `https://grep.ai/research/${jobId}`;
   if (report) {
     console.log(`Status: ${result.status}\n\n${report}`);
+    console.log(`\n---\n[View full report on GREP](${jobUrl})`);
   } else {
     console.log(JSON.stringify(result, null, 2));
+    console.log(`\n---\n[View full report on GREP](${jobUrl})`);
   }
 }
 
@@ -230,10 +233,13 @@ async function runResearch(query, options = {}) {
     if (status === 'completed') {
       process.stderr.write(`[research] Completed in ${elapsed}s (${attempt} polls)\n`);
       const report = extractReport(result);
+      const jobUrl = `https://grep.ai/research/${jobId}`;
       if (report) {
         console.log(report);
+        console.log(`\n---\n[View full report on GREP](${jobUrl})`);
       } else {
         console.log(JSON.stringify(result, null, 2));
+        console.log(`\n---\n[View full report on GREP](${jobUrl})`);
       }
       return;
     }
@@ -250,9 +256,11 @@ async function runResearch(query, options = {}) {
 
   // 3. Timeout — leave the job running, caller can resume via status/result
   process.stderr.write(`[research] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
+  const jobUrl = `https://grep.ai/research/${jobId}`;
   console.log(JSON.stringify({
     status: 'timeout',
     job_id: jobId,
+    job_url: jobUrl,
     message: `Research job is still running after ${maxWaitSeconds}s. Check later with: status ${jobId}`,
   }, null, 2));
   process.exit(2);
