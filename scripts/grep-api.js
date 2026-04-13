@@ -131,18 +131,7 @@ async function checkStatus(jobId) {
 
 async function getResult(jobId) {
   const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
-  
-  // Extract report from status_messages
-  const messages = result.status_messages || [];
-  let report = null;
-  for (const m of messages) {
-    const text = m?.content?.text || '';
-    if (text && (text.includes('##') || text.length > 500)) {
-      report = text;
-      break;
-    }
-  }
-  
+  const report = extractReport(result);
   if (report) {
     console.log(`Status: ${result.status}\n\n${report}`);
   } else {
@@ -160,10 +149,24 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Extract the report text from a completed job response
+// Extract the report text from a completed job response.
+// The report is the last text_block message — it lives in content.content.text
+// (inner content) for text_block types. Falls back to content.text or content.status.
 function extractReport(result) {
   const messages = result.status_messages || [];
-  for (const m of messages) {
+  // Walk backwards — the report is typically one of the last messages
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const inner = m?.content?.content;
+    const innerType = inner?.type || '';
+    // text_block with inner text is the report
+    if (innerType === 'text_block' && inner?.text) {
+      const text = inner.text;
+      if (text.includes('##') || text.length > 500) {
+        return text;
+      }
+    }
+    // Fallback: check content.text directly
     const text = m?.content?.text || '';
     if (text && (text.includes('##') || text.length > 500)) {
       return text;
