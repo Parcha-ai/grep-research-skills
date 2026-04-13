@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
  * GREP Skills - Headless Descope OTP Authentication
- * 
- * Usage:
- *   node auth.js login <email>       # Send OTP and verify
- *   node auth.js status              # Check current session
- *   node auth.js logout              # Clear session
- *   node auth.js token               # Print current access token (for scripts)
+ *
+ * Two-step flow (non-interactive, AI-agent friendly):
+ *   node auth.js send-code <email>              # Send OTP code, exit
+ *   node auth.js verify <email> <code>          # Submit code, save session
+ *
+ * One-step flow (interactive, terminal-friendly):
+ *   node auth.js login [email]                  # Send + prompt stdin + verify
+ *
+ * Session management:
+ *   node auth.js status                         # Check current session
+ *   node auth.js logout                         # Clear session
+ *   node auth.js token                          # Print current access token
  */
 
 const fs = require('fs');
@@ -75,18 +81,24 @@ async function descopeApi(endpoint, body) {
   return data;
 }
 
-// Refresh session using refresh token
+// Refresh session using refresh token.
+// Descope's /v1/auth/refresh expects `Authorization: Bearer <projectId>:<refreshJwt>`
+// (colon-separated), NOT the refreshJwt in the body.
 async function refreshSession(session) {
   try {
     const res = await fetch(`${DESCOPE_BASE_URL}/v1/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DESCOPE_PROJECT_ID}`,
+        'Authorization': `Bearer ${DESCOPE_PROJECT_ID}:${session.refreshJwt}`,
       },
-      body: JSON.stringify({ refreshJwt: session.refreshJwt }),
+      body: '{}',
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error(`[auth] refresh failed: ${res.status} ${errText}`);
+      return null;
+    }
     const data = await res.json();
     const updated = {
       ...session,
@@ -96,6 +108,7 @@ async function refreshSession(session) {
     saveSession(updated);
     return updated;
   } catch (e) {
+    console.error(`[auth] refresh error: ${e.message}`);
     return null;
   }
 }
@@ -128,6 +141,53 @@ function prompt(question) {
 }
 
 // === Commands ===
+
+// Non-interactive: just send the OTP code and exit.
+async function sendCode(email) {
+  if (!email) {
+    console.error('Error: email is required. Usage: auth.js send-code <email>');
+    process.exit(1);
+  }
+  try {
+    await descopeApi('/v1/auth/otp/signup-in/email', { loginId: email });
+    console.error(`Verification code sent to ${email}.`);
+    console.log(JSON.stringify({ ok: true, email, message: 'Code sent' }));
+  } catch (err) {
+    console.error(`Failed to send code: ${err.message}`);
+    console.log(JSON.stringify({ ok: false, error: err.message }));
+    process.exit(1);
+  }
+}
+
+// Non-interactive: submit a previously-sent OTP code.
+async function verify(email, code) {
+  if (!email || !code) {
+    console.error('Error: email and code are required. Usage: auth.js verify <email> <code>');
+    process.exit(1);
+  }
+  try {
+    const result = await descopeApi('/v1/auth/otp/verify/email', {
+      loginId: email,
+      code: code,
+    });
+
+    const session = {
+      email: email,
+      sessionJwt: result.sessionJwt,
+      refreshJwt: result.refreshJwt,
+      user: result.user || {},
+      authenticatedAt: new Date().toISOString(),
+    };
+    saveSession(session);
+
+    console.error(`Authenticated as ${email}`);
+    console.log(JSON.stringify({ ok: true, email }));
+  } catch (err) {
+    console.error(`Verification failed: ${err.message}`);
+    console.log(JSON.stringify({ ok: false, error: err.message }));
+    process.exit(1);
+  }
+}
 
 async function login(email) {
   if (!email) {
@@ -219,6 +279,12 @@ async function logout() {
 const [,, command, ...args] = process.argv;
 
 switch (command) {
+  case 'send-code':
+    sendCode(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'verify':
+    verify(args[0], args[1]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
   case 'login':
     login(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
@@ -234,10 +300,16 @@ switch (command) {
   default:
     console.error('GREP Skills Authentication');
     console.error('');
-    console.error('Usage:');
-    console.error('  node auth.js login [email]   Send OTP code and authenticate');
-    console.error('  node auth.js status          Check session status');
-    console.error('  node auth.js token           Print access token');
-    console.error('  node auth.js logout          Clear session');
+    console.error('Two-step flow (AI-agent friendly):');
+    console.error('  node auth.js send-code <email>        Send OTP, exit');
+    console.error('  node auth.js verify <email> <code>    Submit OTP, save session');
+    console.error('');
+    console.error('One-step flow (terminal, interactive):');
+    console.error('  node auth.js login [email]            Prompt for email + code via stdin');
+    console.error('');
+    console.error('Session management:');
+    console.error('  node auth.js status                   Check session status');
+    console.error('  node auth.js token                    Print access token');
+    console.error('  node auth.js logout                   Clear session');
     process.exit(1);
 }

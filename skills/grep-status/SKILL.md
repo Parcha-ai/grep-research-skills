@@ -7,10 +7,16 @@ description: Check GREP authentication status, view recent research jobs, or che
 
 Check authentication and job status.
 
+## Resolve the script path
+
+```bash
+SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
+```
+
 ## Check Authentication
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/../scripts/auth.js status
+node "$SCRIPTS_DIR/auth.js" status
 ```
 
 Reports whether the user is authenticated and session health.
@@ -18,13 +24,13 @@ Reports whether the user is authenticated and session health.
 ## Check a Specific Job
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/../scripts/grep-api.js status <job_id>
+node "$SCRIPTS_DIR/grep-api.js" status <job_id>
 ```
 
 ## List Recent Jobs
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/../scripts/grep-api.js jobs
+node "$SCRIPTS_DIR/grep-api.js" jobs
 ```
 
 ## Present Status Clearly

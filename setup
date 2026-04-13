@@ -9,9 +9,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║  GREP Deep Research Skills Installer ║"
-echo "  ╚══════════════════════════════════════╝"
+echo "  ╔════════════════════════════════════════════╗"
+echo "  ║  GREP Research Skills Installer            ║"
+echo "  ╚════════════════════════════════════════════╝"
 echo ""
 
 # Check Node.js
@@ -34,24 +34,64 @@ chmod 700 ~/.grep
 # Detect environment and create symlinks
 INSTALLED_TO=""
 
-# Claude Code: symlink into ~/.claude/skills/
+# Claude Code: symlink each skill individually into ~/.claude/skills/
+# Claude Code loads skills from ~/.claude/skills/<skill-name>/SKILL.md — it does
+# NOT descend into nested skills/ subdirectories. Each skill must be at the top level.
 if [ -d "$HOME/.claude" ] || command -v claude &> /dev/null; then
-  mkdir -p "$HOME/.claude/skills"
-  if [ ! -e "$HOME/.claude/skills/grep" ]; then
-    ln -sf "$SCRIPT_DIR" "$HOME/.claude/skills/grep"
-    echo -e "  ${GREEN}✓${NC} Installed for Claude Code (~/.claude/skills/grep)"
-    INSTALLED_TO="claude"
-  else
-    echo -e "  ${YELLOW}→${NC} Claude Code: already installed"
-    INSTALLED_TO="claude"
+  CLAUDE_SKILLS="$HOME/.claude/skills"
+  mkdir -p "$CLAUDE_SKILLS"
+
+  # Migrate: the legacy install nested the whole repo at ~/.claude/skills/grep,
+  # which Claude Code can't discover (it doesn't descend into nested skills/ dirs).
+  # Two legacy shapes to handle:
+  #   1. Symlink: ~/.claude/skills/grep -> /path/to/repo (old setup script behavior)
+  #   2. Real dir: ~/.claude/skills/grep/ (README one-liner clones the repo there)
+  if [ -L "$CLAUDE_SKILLS/grep" ]; then
+    rm "$CLAUDE_SKILLS/grep"
+    echo -e "  ${YELLOW}→${NC} Removed legacy symlink at ~/.claude/skills/grep"
+  elif [ -d "$CLAUDE_SKILLS/grep" ] && [ "$CLAUDE_SKILLS/grep" != "$SCRIPT_DIR" ] \
+       && [ -f "$CLAUDE_SKILLS/grep/.claude-plugin/plugin.json" ]; then
+    # It's a cloned copy of this repo living inside ~/.claude/skills/ — leave
+    # the files alone (might be the user's working checkout), but note that
+    # skills will be linked from whatever $SCRIPT_DIR is.
+    echo -e "  ${YELLOW}!${NC} Found a grep-skills checkout at ~/.claude/skills/grep"
+    echo -e "     Claude Code can't load skills from there directly."
+    echo -e "     This setup will link skills from: $SCRIPT_DIR"
   fi
+
+  INSTALLED_COUNT=0
+  SKIPPED_COUNT=0
+  for skill_dir in "$SCRIPT_DIR/skills"/*/; do
+    skill_name=$(basename "$skill_dir")
+    target="$CLAUDE_SKILLS/$skill_name"
+
+    if [ -L "$target" ]; then
+      # Existing symlink — refresh it to point at this checkout
+      ln -sfn "$skill_dir" "$target"
+      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    elif [ -e "$target" ]; then
+      # Real file/dir at that name — don't clobber
+      echo -e "  ${YELLOW}!${NC} $skill_name already exists and is not a symlink — skipping"
+    else
+      ln -sfn "$skill_dir" "$target"
+      INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+    fi
+  done
+
+  if [ "$INSTALLED_COUNT" -gt 0 ]; then
+    echo -e "  ${GREEN}✓${NC} Installed $INSTALLED_COUNT skill(s) for Claude Code (~/.claude/skills/)"
+  fi
+  if [ "$SKIPPED_COUNT" -gt 0 ]; then
+    echo -e "  ${YELLOW}→${NC} Refreshed $SKIPPED_COUNT existing skill symlink(s)"
+  fi
+  INSTALLED_TO="claude"
 fi
 
 # OpenClaw: symlink into workspace skills or ~/.openclaw/skills/
 if command -v openclaw &> /dev/null; then
   OPENCLAW_SKILLS="$HOME/.openclaw/skills"
   mkdir -p "$OPENCLAW_SKILLS"
-  if [ ! -e "$OPENCLAW_SKILLS/grep-research" ]; then
+  if [ ! -e "$OPENCLAW_SKILLS/research" ]; then
     # OpenClaw expects each skill as a separate directory
     for skill_dir in "$SCRIPT_DIR/skills"/*/; do
       skill_name=$(basename "$skill_dir")
@@ -67,15 +107,15 @@ fi
 
 if [ -z "$INSTALLED_TO" ]; then
   echo -e "  ${YELLOW}!${NC} No Claude Code or OpenClaw detected."
-  echo "  Skills installed at: $SCRIPT_DIR"
-  echo "  Symlink manually:"
-  echo "    ln -sf $SCRIPT_DIR ~/.claude/skills/grep"
+  echo "  Skills are at: $SCRIPT_DIR/skills/"
+  echo "  Symlink each skill manually, e.g.:"
+  echo "    for s in $SCRIPT_DIR/skills/*/; do ln -sfn \"\$s\" ~/.claude/skills/\$(basename \"\$s\"); done"
 fi
 
 echo ""
 echo "  Next steps:"
 echo "  1. Run /grep-login in your AI agent to authenticate"
-echo "  2. Run /grep-research \"your topic\" to start researching"
+echo "  2. Run /research \"your topic\" to start researching"
 echo ""
 echo -e "  ${GREEN}Setup complete!${NC}"
 echo ""
