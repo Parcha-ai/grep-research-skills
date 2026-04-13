@@ -119,6 +119,7 @@ async function submitResearch(query, options = {}) {
     depth: options.depth || 'deep',
   };
   if (options.approach) body.approach = options.approach;
+  if (options.context) body.context = options.context;
 
   const result = await api('POST', '/api/v1/research', body);
   console.log(JSON.stringify(result, null, 2));
@@ -192,8 +193,10 @@ async function runResearch(query, options = {}) {
   const pollIntervalMs = 15_000; // then every 15s
 
   // 1. Submit
+  const submitBody = { question: query, depth };
+  if (options.context) submitBody.context = options.context;
   process.stderr.write(`[research] Submitting (depth=${depth})...\n`);
-  const submitted = await api('POST', '/api/v1/research', { question: query, depth });
+  const submitted = await api('POST', '/api/v1/research', submitBody);
   const jobId = submitted.job_id || submitted.id;
   if (!jobId) {
     console.error('[research] No job_id in submit response');
@@ -230,7 +233,7 @@ async function runResearch(query, options = {}) {
       seenMessageCount = messages.length;
     }
 
-    if (status === 'completed') {
+    if (status === 'completed' || status === 'complete') {
       process.stderr.write(`[research] Completed in ${elapsed}s (${attempt} polls)\n`);
       const report = extractReport(result);
       const jobUrl = `https://grep.ai/research/${jobId}`;
@@ -290,19 +293,33 @@ function parseArgs(argv) {
 const [,, command, ...rawArgs] = process.argv;
 const { positional: args, flags } = parseArgs(rawArgs);
 
+// Load context from file if --context-file flag is provided
+function loadContext() {
+  if (flags['context-file']) {
+    try {
+      return fs.readFileSync(flags['context-file'], 'utf8');
+    } catch (e) {
+      console.error(`Failed to read context file: ${e.message}`);
+      process.exit(1);
+    }
+  }
+  return flags.context || undefined;
+}
+
 switch (command) {
   case 'run':
     // Blocking: submit + poll to completion + print report
-    if (!args[0]) { console.error('Usage: grep-api.js run "query" [--depth=deep|ultra_fast|ultra_deep] [--max-wait=480]'); process.exit(1); }
+    if (!args[0]) { console.error('Usage: grep-api.js run "query" [--depth=deep|ultra_fast|ultra_deep] [--max-wait=480] [--context-file=path]'); process.exit(1); }
     runResearch(args.join(' '), {
       depth: flags.depth,
       maxWaitSeconds: flags['max-wait'],
+      context: loadContext(),
     }).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'research':
     // Non-blocking: submit only, print job_id
     if (!args[0]) { console.error('Usage: grep-api.js research "query"'); process.exit(1); }
-    submitResearch(args.join(' '), { depth: flags.depth }).catch(e => { console.error(e.message); process.exit(1); });
+    submitResearch(args.join(' '), { depth: flags.depth, context: loadContext() }).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'status':
     if (!args[0]) { console.error('Usage: grep-api.js status <job_id>'); process.exit(1); }
@@ -331,5 +348,7 @@ switch (command) {
     console.error('    deep        ~5 minutes (range 2-9 min)');
     console.error('    ultra_deep  up to 1 hour — NOT recommended with `run`, use `research` + polling');
     console.error('  --max-wait=<seconds>                  Max wait for `run` command (default: 540, cap 540)');
+    console.error('  --context-file=<path>                 Read additional context from file and send with request');
+    console.error('  --context="<text>"                    Inline additional context string');
     process.exit(1);
 }
