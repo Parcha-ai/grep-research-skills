@@ -70,6 +70,9 @@ async function getValidToken() {
     process.exit(1);
   }
 
+  // API key sessions bypass JWT refresh — keys are long-lived.
+  if (session.apiKey) return session.apiKey;
+
   if (isExpired(session.sessionJwt)) {
     if (!session.refreshJwt || isExpired(session.refreshJwt)) {
       console.error('Session expired. Run: /grep-login');

@@ -1,30 +1,88 @@
 ---
 name: grep-login
-description: Authenticate with GREP deep research. Use when the user needs to log in to GREP, authenticate, set up GREP credentials, or when a GREP API call returns 401 unauthorized.
+description: Authenticate with GREP deep research. Use when the user needs to log in to GREP, authenticate, set up GREP credentials, or when a GREP API call returns 401 unauthorized. Supports direct arguments for agent use — `/grep-login <email>` to login with OTP, `/grep-login --api-key <key>` to authenticate with an API key.
 disable-model-invocation: true
 ---
 
 # GREP Login
 
-Authenticate the user with their GREP account. Supports two modes:
-- **Device flow** (recommended for new users): Opens the browser, user signs up/logs in on the web, session syncs back to the terminal automatically.
-- **OTP flow** (fallback): Email-based one-time password, fully in-terminal. Use when browser isn't available.
+Authenticate the user with their GREP account. Three methods:
+- **OTP** — email-based one-time password (default for interactive users)
+- **API key** — paste a long-lived key (best for CI, headless, and agents)
+- **Sign up** — create an account at grep.ai first
 
 ## Resolve the script path
-
-The skill directory may be symlinked, so `${CLAUDE_SKILL_DIR}/..` can resolve to the wrong place. Use this instead to get the real scripts directory:
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 ```
 
-## Choose auth method
+## Direct arguments (for agents and automation)
 
-**Default to OTP flow** — it's proven and works everywhere. Skip straight to Step 1.
+If the user passes arguments directly, skip the interactive questions:
 
-Enchanted Links (magic link click-to-auth) are available as an experimental alternative but require the `/auth/verify` frontend route to be deployed. Only offer enchanted links if the user specifically asks for it.
+- **`/grep-login user@example.com`** — treat as email, go straight to OTP flow (Step 1 with this email)
+- **`/grep-login --api-key grp_abc123`** — save the API key immediately:
+  ```bash
+  node "${SCRIPTS_DIR}/auth.js" set-api-key "<api_key>"
+  ```
+  On success, skip to Step 5.5 (waitlist check). On failure, report the error.
+- **`/grep-login --api-key grp_abc123 --email user@example.com`** — save API key, associate with email
 
-### If Enchanted Link (experimental):
+If `$ARGUMENTS` is empty or doesn't match the above patterns, proceed to Step 0.
+
+## Step 0: Sign up, log in, or use an API key
+
+Use **AskUserQuestion** to let the user pick:
+
+- Header: "Get started"
+- Question: "How would you like to connect to GREP?"
+- Options:
+  - "Sign up — I'm new to GREP" — "Create an account at grep.ai, then come back here to connect your terminal."
+  - "Log in — I already have an account" — "Send a 6-digit code to the email on my GREP account."
+  - "Use an API key" — "Paste an API key from grep.ai/api-keys. Best for CI and headless environments."
+
+### If "Sign up":
+
+Direct the user to the web to create their account first:
+
+```bash
+open "https://preview.grep.ai/start"
+```
+
+On Linux use `xdg-open`, on WSL use `wslview`.
+
+Tell the user clearly:
+
+> "I've opened grep.ai/start in your browser. Create your account and complete onboarding there.
+>
+> **Once you're done, come back here.** I'll then connect your terminal using your email — run `/grep-login` again and pick 'Log in'."
+
+Stop here. The user needs to complete web signup before the terminal can auth against their account.
+
+### If "Use an API key":
+
+Ask the user for their API key via **AskUserQuestion** (free-text input):
+- Header: "API key"
+- Question: "Paste your GREP API key. You can create one at https://grep.ai/api-keys"
+
+Then save it as the session:
+
+```bash
+node "${SCRIPTS_DIR}/auth.js" set-api-key "<api_key>"
+```
+
+Output:
+- Success: `{"ok": true, "authMethod": "api_key", "tier": "..."}` — session saved
+- Failure: `{"ok": false, "error": "..."}` — likely invalid key
+
+On success, skip to Step 6 (check onboarding status). On failure, tell the user the key was invalid and offer to try again or pick "Log in" instead.
+
+### If "Log in":
+
+Continue with the OTP flow below (Step 1 onwards).
+
+### (Optional experimental) Enchanted Link:
 
 #### Step 0a: Get the user's email
 
@@ -117,9 +175,38 @@ This is also non-interactive. Output:
 - **Failure with "One time code is invalid":** The code was wrong or expired. Loop back to Step 2 to send a fresh code.
 - **Other failure:** Report the error to the user and suggest they try again or check grep.ai status.
 
+### Step 5.5: Check waitlist status
+
+**First, check if the user is on the waitlist.** This takes precedence over onboarding and billing — waitlisted users can't use `/research` or buy a plan yet.
+
+```bash
+node "${SCRIPTS_DIR}/billing.js" waitlist
+```
+
+Returns JSON: `{ "on_waitlist": true/false }`.
+
+**If `on_waitlist` is `true`:**
+
+Tell the user clearly what's happening and what they can do:
+
+> "You're on the GREP waitlist. Here's what that means:
+>
+> - We'll email you at `<email>` as soon as your account is activated
+> - This usually takes a few days — we're onboarding in waves
+> - You can't run `/research` or `/grep-upgrade` until you're off the waitlist
+>
+> **What you can do now:**
+> - Run `/grep-status` anytime to check if you're off the waitlist
+> - If you have an invite code or know someone at GREP, they can fast-track you
+> - Keep an eye on your inbox (and spam folder) for the activation email"
+
+Stop here. Do NOT proceed to onboarding or billing checks.
+
+**If `on_waitlist` is `false`:** Continue to Step 6.
+
 ### Step 6: Check onboarding status
 
-After successful authentication, check whether the user has completed onboarding at grep.ai:
+After successful authentication and waitlist clearance, check whether the user has completed onboarding at grep.ai:
 
 ```bash
 node "${SCRIPTS_DIR}/billing.js" onboarding
@@ -165,19 +252,9 @@ Run this as a **background Bash command** (`run_in_background: true`) so the use
 - **If `onboarding_complete: true`:** Tell the user "Onboarding complete! Welcome to GREP. You're all set to start researching." and proceed to Step 7.
 - **If `timed_out: true`:** Tell the user "No rush — finish onboarding at grep.ai/start when you're ready, then come back here and run `/grep-login` again. I'll pick up where we left off."
 
-### Step 7: Check account status and suggest plan
+### Step 7: Check billing status and suggest plan
 
-Check whether the user is waitlisted, then check their billing status:
-
-```bash
-node "${SCRIPTS_DIR}/billing.js" waitlist
-```
-
-This returns JSON: `{ "on_waitlist": true/false }`.
-
-- **If `on_waitlist` is `true`:** Tell the user "You're currently on the GREP waitlist — we'll email you at <email> when your account is activated. You can check back anytime with `/grep-status`." Do NOT suggest `/grep-upgrade` or `/research`. Stop here.
-
-- **If `on_waitlist` is `false`:** Check billing status:
+Check their billing status:
 
 ```bash
 node "${SCRIPTS_DIR}/billing.js" status

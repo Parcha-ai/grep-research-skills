@@ -120,11 +120,14 @@ async function refreshSession(session) {
   }
 }
 
-// Get valid token (refresh if needed)
+// Get valid token (refresh if needed). Returns API key for api_key sessions.
 async function getValidToken() {
   let session = loadSession();
   if (!session) return null;
-  
+
+  // API key sessions don't need refresh — keys are long-lived.
+  if (session.apiKey) return session.apiKey;
+
   if (isExpired(session.sessionJwt)) {
     if (session.refreshJwt && !isExpired(session.refreshJwt)) {
       session = await refreshSession(session);
@@ -279,6 +282,41 @@ async function token() {
 async function logout() {
   clearSession();
   console.log(JSON.stringify({ ok: true, message: 'Logged out' }));
+}
+
+// Save an API key as the session (for headless/CI environments).
+// API keys are long-lived tokens minted from the GREP dashboard; no refresh needed.
+async function setApiKey(apiKey) {
+  if (!apiKey) {
+    console.error('Error: API key required. Usage: auth.js set-api-key <key>');
+    process.exit(1);
+  }
+  // Validate the key by calling /billing/status with it
+  try {
+    const res = await fetch(`${GREP_API_BASE}/billing/status`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Invalid API key: ${res.status} ${text}`);
+    }
+    const data = await res.json();
+    const session = {
+      apiKey,
+      email: data.email || null,
+      authenticatedAt: new Date().toISOString(),
+      authMethod: 'api_key',
+    };
+    saveSession(session);
+    console.log(JSON.stringify({ ok: true, authMethod: 'api_key', tier: data.tier }));
+  } catch (err) {
+    console.error(`Failed to validate API key: ${err.message}`);
+    console.log(JSON.stringify({ ok: false, error: err.message }));
+    process.exit(1);
+  }
 }
 
 // === Enchanted Link Flow (click-to-auth, no code typing) ===
@@ -451,6 +489,9 @@ switch (command) {
   case 'logout':
     logout().catch(e => { console.error(e.message); process.exit(1); });
     break;
+  case 'set-api-key':
+    setApiKey(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
   case 'enchanted-login':
     enchantedLogin(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
@@ -475,6 +516,9 @@ switch (command) {
     console.error('');
     console.error('OTP flow (terminal, interactive):');
     console.error('  node auth.js login [email]              Prompt for email + code via stdin');
+    console.error('');
+    console.error('API key (headless/CI):');
+    console.error('  node auth.js set-api-key <key>          Save a GREP API key as the session');
     console.error('');
     console.error('Session management:');
     console.error('  node auth.js status                     Check session status');
