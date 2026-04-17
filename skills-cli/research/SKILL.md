@@ -127,8 +127,12 @@ The refined query should include:
 
 ## Prerequisites
 
-* `brain` CLI on `$PATH`. The installer drops it into `~/.local/bin/brain` — run `npx grep-research-skills` if `brain --version` is missing.
+* `brain` CLI on `$PATH`. The installer drops it into `~/.local/bin/brain` — run `npx grep-research-skills --cli` if `brain --version` is missing.
 * The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
+
+## Optional: project-based SOP
+
+If this research should follow a specific workflow (SOP.md) stored under a workspace project, add `--project <path>` to the submit command — e.g. `--project experts/flutterwave_mcc`. The backend reads that directory's `SOP.md` as the agent's system prompt and runs the job under the project's dedicated brain. Use this when the user references a named expert/workflow, or when they ask "run it through the <X> project".
 
 ## Run it (preferred: Monitor for live streaming)
 
@@ -136,6 +140,9 @@ If the Monitor tool is available, use it to stream live status updates to the us
 
 ```bash
 brain research submit "<refined_query>" --depth deep --wait --timeout 540 --context-file "$CONTEXT_FILE" 2>&1
+# with a project SOP:
+# brain research submit "<refined_query>" --depth deep --wait --timeout 540 \
+#   --project experts/flutterwave_mcc --context-file "$CONTEXT_FILE" 2>&1
 ```
 
 **Clean up after the research completes:**

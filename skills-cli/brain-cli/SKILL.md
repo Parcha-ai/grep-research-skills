@@ -78,11 +78,13 @@ brain auth status --json  # confirm
 
 | Subcommand | Purpose |
 |---|---|
-| `submit "<question>" [--depth ultra_fast\|deep\|ultra_deep] [--context TEXT \| --context-file PATH] [--wait] [--timeout SECS]` | Submit a research job |
+| `submit "<question>" [--depth ultra_fast\|deep\|ultra_deep] [--context TEXT \| --context-file PATH] [--project WORKSPACE_PATH] [--wait] [--timeout SECS]` | Submit a research job |
 | `list [--status ...] [--limit N]` | Alias of `brain jobs` |
 | `get <job_id> [--include-status-messages]` | Fetch a single job |
 
 `--wait` blocks until complete (20s initial delay, 15s polling interval, default 540s cap). Live status messages stream to stderr.
+
+`--project` flows a workspace directory through as the job's SOP source — the backend reads `SOP.md` from that path and uses it as the agent's system prompt.
 
 ### `brain jobs` / `brain report`
 
@@ -135,6 +137,30 @@ brain status waitlist                # { "on_waitlist": true|false }
 brain status onboarding              # { "has_completed_onboarding": true|false }
 # whoami lives under `brain auth`:
 brain auth whoami                    # alias of `brain auth status`
+```
+
+### `brain defaults`
+
+Per-user default context files. Stored in Pierre at `users/{uid}/defaults/`; hydrated into `./defaults/` in every sandbox.
+
+```bash
+brain defaults list --json                       # → GET /grep/user/defaults
+brain defaults upload ./rubric.md --as legal/rubric.md --json
+                                                 # → POST /grep/user/defaults (multipart)
+brain defaults upload ./a.md ./b.md ./c.md       # bulk; basenames kept
+brain defaults delete legal/rubric.md --json     # → DELETE /grep/user/defaults/{path}
+```
+
+Only the first file of a bulk upload honours `--as`; subsequent files keep their basename.
+
+### `brain inputs`
+
+Per-job input files. Stored in Pierre at `jobs/{id}/input_files/`; hydrated into `./input_files/` in the job's sandbox at dispatch. Limits: 100 MB/file, 500 MB/job.
+
+```bash
+brain inputs attach <job_id> ./data.csv ./schema.json --json
+                                                 # → POST /grep/jobs/{id}/inputs (multipart)
+brain inputs delete <job_id> data.csv --json     # → DELETE /grep/jobs/{id}/inputs/{path}
 ```
 
 ---

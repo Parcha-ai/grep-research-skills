@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.0] — 2026-04-17
+
+### Added
+
+* **Two installable flavours.** `npx grep-research-skills` now accepts `--api` (default) or `--cli`:
+  - **`--api`** — raw-HTTP skills from `skills-api/`. No `brain` binary required. Works in sandboxed Claude Code environments (Claude.ai web, some cloud runners, locked-down laptops) where installing arbitrary binaries isn't allowed.
+  - **`--cli`** — CLI-backed skills from `skills-cli/` + fetches the `brain` Rust binary. Faster UX + richer ergonomics, requires ability to drop a binary on PATH.
+* **Sticky flavour preference.** First install writes `~/.grep-research-skills/.flavour`; subsequent `npx grep-research-skills` runs without a flag re-use that choice. Passing `--api` or `--cli` switches cleanly (opposite-flavour symlinks are cleaned up automatically).
+* **Two new skills in both flavours** — powered by endpoints that landed on `feat/workspace-projects-browser`:
+  - `/grep-defaults` — upload / list / delete per-user default context files (`POST/GET/DELETE /grep/user/defaults`). Files live in Pierre at `users/{uid}/defaults/` and are hydrated into every sandbox at `./defaults/`.
+  - `/grep-inputs` — attach / delete per-job input files (`POST/DELETE /grep/jobs/{id}/inputs`). Files land at `jobs/{id}/input_files/` in Pierre; sandbox sees them at `./input_files/`. Limits: 100 MB / file, 500 MB / job.
+* **New API-flavour-only skill** `/grep-api-reference` — canonical documentation for every HTTP call the API flavour makes: the `get_token` helper (shared across skills), session file format, endpoint inventory, multipart recipes, polling pattern.
+* **`/research`, `/quick-research`, `/ultra-research`, `/grep-plan`, `/grep-skill-creator`** — now document the `--project <workspace/path>` flag (CLI flavour) / `"project"` body field (API flavour). Points the backend at a workspace directory whose `SOP.md` becomes the agent's system prompt.
+
+### Changed
+
+* **Default install flavour is API**, not CLI. Opens the plugin to environments that can't install binaries. Existing 0.2.x users on a machine with `brain` installed still get CLI by passing `--cli` or relying on the sticky file.
+* `skills/` moved to `skills-cli/`; new `skills-api/` sits beside it.
+* `bin/install.js` rewritten around flavour dispatch; `brainCliMinVersion` bumped to `0.2.0`.
+* CI workflow now lints both flavours, runs two installer smoke tests (API + CLI), and verifies the flavour switch correctly swaps symlinks.
+
+### Compatibility
+
+* Sessions in `~/.grep/session.json` work unchanged between flavours.
+* `~/.config/brain/config.toml` descope ID is seeded by both flavours, so switching from API to CLI later doesn't need reconfig.
+
 ## [0.2.0] — 2026-04-17
 
 ### Breaking

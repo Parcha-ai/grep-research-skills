@@ -1,7 +1,7 @@
 {
   "name": "grep-research-skills",
-  "description": "Deep research superpowers for your AI agent. Three research tiers powered by GREP — driven by the `brain` CLI.",
-  "version": "0.2.0",
+  "description": "Deep research superpowers for your AI agent. Three research tiers powered by GREP — API flavour (curl, no binary) or CLI flavour (brain).",
+  "version": "0.3.0",
   "author": {
     "name": "Parcha Labs",
     "url": "https://grep.ai"
