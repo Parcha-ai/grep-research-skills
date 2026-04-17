@@ -2,49 +2,34 @@
 /**
  * grep-research-skills installer
  *
- * Invoked via: npx grep-research-skills [--api | --cli]
+ * Invoked via: npx grep-research-skills
  *
- * Two mutually-exclusive flavours:
+ * Drops 11 raw-HTTP skills into ~/.claude/skills/ (and ~/.openclaw/skills/
+ * if OpenClaw is installed). Skills speak the GREP REST API directly via
+ * curl + a small node-based get_token helper — no external binary needed.
+ * Works in sandboxed Claude Code envs (Claude.ai web, some cloud runners,
+ * locked-down laptops).
  *
- *   --api (DEFAULT)
- *     Installs the raw-HTTP skills from `skills-api/`. No `brain` binary
- *     required. Works in sandboxed Claude Code environments (Claude.ai web,
- *     some cloud runners, locked-down laptops) where installing an
- *     arbitrary binary is not possible.
+ * Power users who want the speed-optimized variant can install
+ * `grep-research-skills-cli` (separate npm package + repo) which routes
+ * through the brain Rust CLI instead.
  *
- *   --cli
- *     Installs the CLI-backed skills from `skills-cli/` AND fetches the
- *     `brain` Rust binary via the official installer. Faster UX + richer
- *     ergonomics; requires the ability to drop a binary onto PATH.
- *
- * Env vars:
- *   GREP_SKILLS_FLAVOUR=api|cli     Same as --api / --cli flag.
- *   BRAIN_DESCOPE_PROJECT_ID=...    Override the Descope project ID.
+ * Env overrides:
+ *   BRAIN_DESCOPE_PROJECT_ID=...    Override the Descope project ID
+ *                                   (seeded into ~/.config/brain/config.toml).
  *   GREP_BASE_URL=...               Override the onboarding landing page.
- *   SKIP_BRAIN_INSTALL=1            (--cli only) Skip the curl | sh brain
- *                                   install step, assume brain is on PATH.
- *
- * Resolution order when neither flag nor env is set:
- *   1. A prior install's ~/.grep-research-skills/.flavour file (sticky).
- *   2. Default: api.
- *
- * Re-running switches flavours cleanly: the opposite flavour's symlinks
- * are removed from ~/.claude/skills/ (and ~/.openclaw/skills/) before the
- * new ones are written.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, execFileSync, spawnSync } = require('child_process');
+const { execSync } = require('child_process');
 
 const HOME = process.env.HOME || process.env.USERPROFILE;
 const INSTALL_DIR = path.join(HOME, '.grep-research-skills');
-const FLAVOUR_FILE = path.join(INSTALL_DIR, '.flavour');
 const GREP_DIR = path.join(HOME, '.grep');
 const SESSION_FILE = path.join(GREP_DIR, 'session.json');
 const BRAIN_CONFIG_DIR = path.join(HOME, '.config', 'brain');
 const BRAIN_CONFIG_FILE = path.join(BRAIN_CONFIG_DIR, 'config.toml');
-const BRAIN_BIN_DIR = path.join(HOME, '.local', 'bin');
 
 const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://preview.grep.ai';
 const DESCOPE_PROJECT_ID =
@@ -54,40 +39,13 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
-const RED = '\x1b[31m';
 const CYAN = '\x1b[36m';
 const NC = '\x1b[0m';
 
 function log(msg) { console.log(`  ${msg}`); }
 function ok(msg) { log(`${GREEN}✓${NC} ${msg}`); }
 function warn(msg) { log(`${YELLOW}→${NC} ${msg}`); }
-function err(msg) { log(`${RED}✗${NC} ${msg}`); }
 function info(msg) { log(`${CYAN}→${NC} ${msg}`); }
-
-// =============================================================================
-// Flavour resolution
-// =============================================================================
-
-function resolveFlavour(argv) {
-  if (argv.includes('--api')) return 'api';
-  if (argv.includes('--cli')) return 'cli';
-  const env = (process.env.GREP_SKILLS_FLAVOUR || '').trim().toLowerCase();
-  if (env === 'api' || env === 'cli') return env;
-  // Sticky: re-use the previously installed flavour.
-  if (fs.existsSync(FLAVOUR_FILE)) {
-    const prior = fs.readFileSync(FLAVOUR_FILE, 'utf8').trim().toLowerCase();
-    if (prior === 'api' || prior === 'cli') return prior;
-  }
-  return 'api'; // default — guaranteed to work everywhere
-}
-
-function flavourSourceDir(flavour) {
-  return path.join(PKG_ROOT, flavour === 'cli' ? 'skills-cli' : 'skills-api');
-}
-
-// =============================================================================
-// Filesystem helpers
-// =============================================================================
 
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -137,81 +95,11 @@ function unlinkOurSkills(targetDir) {
   return count;
 }
 
-// =============================================================================
-// brain binary (CLI flavour only)
-// =============================================================================
-
-function findBrain() {
-  const local = path.join(BRAIN_BIN_DIR, 'brain');
-  if (fs.existsSync(local)) return local;
-  if (process.platform !== 'win32') {
-    try {
-      const out = execSync('command -v brain', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      const trimmed = out.trim();
-      if (trimmed) return trimmed;
-    } catch {/* not on PATH */}
-  }
-  return null;
-}
-
-function brainVersion(brainPath) {
-  try {
-    const out = execFileSync(brainPath, ['--version'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return out.trim();
-  } catch {
-    return null;
-  }
-}
-
-function compareVersions(a, b) {
-  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const ai = pa[i] || 0;
-    const bi = pb[i] || 0;
-    if (ai > bi) return 1;
-    if (ai < bi) return -1;
-  }
-  return 0;
-}
-
-function extractVersion(versionLine) {
-  const m = (versionLine || '').match(/(\d+\.\d+\.\d+)/);
-  return m ? m[1] : null;
-}
-
-function installBrain() {
-  if (process.env.SKIP_BRAIN_INSTALL === '1') {
-    warn('SKIP_BRAIN_INSTALL=1 — not installing brain; skill commands will fail until `brain` is on PATH.');
-    return null;
-  }
-  if (process.platform === 'win32') {
-    err('Automatic brain install is not supported on Windows.');
-    log('Install brain manually: https://github.com/Parcha-ai/brain-cli#install');
-    log('Or re-run without --cli to use the API flavour (no binary needed).');
-    return null;
-  }
-  log('Installing brain CLI from https://github.com/Parcha-ai/brain-cli ...');
-  const result = spawnSync(
-    'sh',
-    ['-c', 'curl -fsSL https://raw.githubusercontent.com/Parcha-ai/brain-cli/main/install.sh | sh'],
-    { stdio: 'inherit' }
-  );
-  if (result.status !== 0) {
-    err('brain installer failed. Install manually: https://github.com/Parcha-ai/brain-cli');
-    return null;
-  }
-  return findBrain();
-}
-
-// =============================================================================
-// Descope project ID (seeded in both flavours so --api → --cli transitions work)
-// =============================================================================
-
+/**
+ * Write `descope_project_id = "..."` to ~/.config/brain/config.toml.
+ * Done even though this flavour doesn't need brain — preserves config
+ * for users who later install `grep-research-skills-cli`.
+ */
 function seedDescopeProjectId() {
   fs.mkdirSync(BRAIN_CONFIG_DIR, { recursive: true, mode: 0o700 });
   let existing = '';
@@ -225,10 +113,6 @@ function seedDescopeProjectId() {
   try { fs.chmodSync(BRAIN_CONFIG_FILE, 0o600); } catch {/* non-unix */}
   return true;
 }
-
-// =============================================================================
-// Main
-// =============================================================================
 
 function main() {
   console.log('');
@@ -247,59 +131,18 @@ function main() {
     process.exit(1);
   }
 
-  const argv = process.argv.slice(2);
-  if (argv.includes('--help') || argv.includes('-h')) {
-    console.log('  Usage: npx grep-research-skills [--api | --cli]');
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log('  Usage: npx grep-research-skills');
     console.log('');
-    console.log('    --api   Install raw-HTTP skills (default). No binary needed.');
-    console.log('    --cli   Install CLI-backed skills + fetch the `brain` binary.');
+    console.log('  Installs 11 raw-HTTP research skills. No binary required.');
+    console.log('  For the speed-optimized variant, see:');
+    console.log('    npx grep-research-skills-cli');
     console.log('');
     process.exit(0);
   }
 
-  const flavour = resolveFlavour(argv);
-  info(`Flavour: ${flavour === 'cli' ? 'CLI (brain binary)' : 'API (raw HTTP, no binary)'}`);
-
-  const srcDir = flavourSourceDir(flavour);
-  if (!fs.existsSync(srcDir)) {
-    err(`skills source missing: ${srcDir}`);
-    process.exit(1);
-  }
-
-  // 1. brain install (CLI only)
-  if (flavour === 'cli') {
-    let brainPath = findBrain();
-    if (!brainPath) {
-      warn('brain CLI not found on PATH — installing...');
-      brainPath = installBrain();
-      if (!brainPath) {
-        err('Could not install brain. Skill commands will fail until it is on PATH.');
-      }
-    }
-    if (brainPath) {
-      const ver = brainVersion(brainPath);
-      ok(`brain CLI: ${ver || '<version check failed>'} (${brainPath})`);
-      const pkg = require(path.join(PKG_ROOT, 'package.json'));
-      const minVer = pkg.brainCliMinVersion;
-      const detected = extractVersion(ver);
-      if (minVer && detected && compareVersions(detected, minVer) < 0) {
-        warn(`brain ${detected} is older than the required ${minVer}. ` +
-             `Upgrade: curl -fsSL https://raw.githubusercontent.com/Parcha-ai/brain-cli/main/install.sh | sh`);
-      }
-      const PATH_ENV = process.env.PATH || process.env.Path || '';
-      const pathEntries = PATH_ENV.split(path.delimiter).filter(Boolean);
-      if (!pathEntries.includes(BRAIN_BIN_DIR)) {
-        warn(`${BRAIN_BIN_DIR} is not on your PATH. Add it:`);
-        if (process.platform === 'win32') {
-          log(`    setx PATH "%PATH%;${BRAIN_BIN_DIR}"`);
-        } else {
-          log(`    export PATH="${BRAIN_BIN_DIR}:$PATH"`);
-        }
-      }
-    }
-  }
-
-  // 2. Seed Descope project ID (always — enables later --cli switch without reconfig)
+  // 1. Seed Descope project ID (so a later install of the CLI variant
+  //    inherits the same config without a separate setup step).
   const wrote = seedDescopeProjectId();
   if (wrote) {
     ok(`Seeded Descope project ID into ${BRAIN_CONFIG_FILE}`);
@@ -307,13 +150,13 @@ function main() {
     ok(`Descope project ID already present in ${BRAIN_CONFIG_FILE}`);
   }
 
-  // 3. Copy skills for this flavour (wipe first so removed skills don't linger)
-  log(`Installing ${flavour} skills to ~/.grep-research-skills/ ...`);
+  // 2. Copy skills (wipe first so removed-in-new-version skills don't linger)
+  log('Installing skills to ~/.grep-research-skills/ ...');
   const destSkills = path.join(INSTALL_DIR, 'skills');
   if (fs.existsSync(destSkills)) {
     fs.rmSync(destSkills, { recursive: true, force: true });
   }
-  copyDirSync(srcDir, destSkills);
+  copyDirSync(path.join(PKG_ROOT, 'skills'), destSkills);
 
   const pluginDir = path.join(INSTALL_DIR, '.claude-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
@@ -321,27 +164,26 @@ function main() {
   if (fs.existsSync(pluginSrc)) {
     fs.copyFileSync(pluginSrc, path.join(pluginDir, 'plugin.json'));
   }
+  ok('Copied skills to ~/.grep-research-skills/');
 
-  // 4. Persist flavour choice (sticky for next npx run without a flag)
-  fs.writeFileSync(FLAVOUR_FILE, flavour + '\n');
-  ok(`Flavour persisted to ${FLAVOUR_FILE}`);
-
-  // 5. Clean up legacy scripts directory from 0.1.x installs
-  const legacyScripts = path.join(INSTALL_DIR, 'scripts');
-  if (fs.existsSync(legacyScripts)) {
-    try {
-      fs.rmSync(legacyScripts, { recursive: true, force: true });
-      warn(`Removed legacy ${legacyScripts}/ (no longer used)`);
-    } catch {/* ignore */}
+  // 3. Clean up legacy artifacts from earlier installer versions.
+  for (const legacy of ['scripts', '.flavour']) {
+    const legacyPath = path.join(INSTALL_DIR, legacy);
+    if (fs.existsSync(legacyPath)) {
+      try {
+        fs.rmSync(legacyPath, { recursive: true, force: true });
+        warn(`Removed legacy ${legacyPath} (no longer used)`);
+      } catch {/* ignore */}
+    }
   }
 
   if (!fs.existsSync(GREP_DIR)) {
     fs.mkdirSync(GREP_DIR, { recursive: true, mode: 0o700 });
   }
 
-  // 6. Symlink skills into Claude Code + OpenClaw dirs.
-  //    First, remove any symlinks that point into INSTALL_DIR from a previous
-  //    flavour install. This is what makes --api → --cli switches clean.
+  // 4. Symlink skills into Claude Code + OpenClaw dirs.
+  //    Wipe any symlinks pointing into INSTALL_DIR first so a re-install
+  //    after we've added/removed skills doesn't leave dead links.
   const skillsRoot = destSkills;
   const skillNames = fs.readdirSync(skillsRoot, { withFileTypes: true })
     .filter(d => d.isDirectory())
@@ -357,7 +199,7 @@ function main() {
       warn('Removed legacy symlink at ~/.claude/skills/grep');
     }
     const removed = unlinkOurSkills(claudeSkills);
-    if (removed) info(`Unlinked ${removed} prior skill(s) from ${claudeSkills} before re-link`);
+    if (removed) info(`Unlinked ${removed} prior skill(s) from ${claudeSkills}`);
     let count = 0;
     for (const name of skillNames) {
       if (symlinkSkill(path.join(skillsRoot, name), claudeSkills, name)) count++;
@@ -370,7 +212,7 @@ function main() {
   if (fs.existsSync(path.join(HOME, '.openclaw'))) {
     fs.mkdirSync(openclawSkills, { recursive: true });
     const removed = unlinkOurSkills(openclawSkills);
-    if (removed) info(`Unlinked ${removed} prior skill(s) from ${openclawSkills} before re-link`);
+    if (removed) info(`Unlinked ${removed} prior skill(s) from ${openclawSkills}`);
     let count = 0;
     for (const name of skillNames) {
       if (symlinkSkill(path.join(skillsRoot, name), openclawSkills, name)) count++;
@@ -379,7 +221,6 @@ function main() {
     installedTo.push('OpenClaw');
   }
 
-  // 7. Summary
   console.log('');
   if (installedTo.length > 0) {
     ok(`Installed for: ${installedTo.join(', ')}`);
@@ -413,17 +254,12 @@ function main() {
   }
 
   console.log('');
-  log(`Skills installed (${flavour} flavour):`);
+  log('Skills installed:');
   for (const name of skillNames) {
     log(`  /${name}`);
   }
   console.log('');
   ok('Setup complete.');
-  if (flavour === 'api') {
-    info('To switch to the CLI flavour later: npx grep-research-skills --cli');
-  } else {
-    info('To switch to the API flavour later: npx grep-research-skills --api');
-  }
   console.log('');
 }
 

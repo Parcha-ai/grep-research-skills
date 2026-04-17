@@ -7,7 +7,7 @@ on:
 
 jobs:
   lint-skills:
-    name: Lint SKILL.md files (both flavours)
+    name: Lint SKILL.md files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +15,7 @@ jobs:
         run: |
           set -eu
           fail=0
-          for skill in skills-cli/*/SKILL.md skills-api/*/SKILL.md; do
+          for skill in skills/*/SKILL.md; do
             head -n1 "$skill" | grep -q '^---$' || { echo "FAIL: $skill: missing frontmatter opener"; fail=1; }
             grep -q '^name:' "$skill"          || { echo "FAIL: $skill: missing name"; fail=1; }
             grep -q '^description:' "$skill"   || { echo "FAIL: $skill: missing description"; fail=1; }
@@ -23,149 +23,83 @@ jobs:
           exit $fail
 
   ensure-no-legacy-artifacts:
-    name: No legacy skills/ or scripts/ dirs
+    name: No legacy directories or scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Legacy `skills/` has been renamed to skills-cli/
+      - name: Legacy `scripts/`, `skills-cli/`, `skills-api/` must not exist
         run: |
-          if [ -d skills ]; then
-            echo "FAIL: skills/ exists — v0.3 moved it to skills-cli/. Delete the old dir."
-            exit 1
-          fi
-      - name: Legacy `scripts/` must not exist (migrated to brain CLI or raw curl)
-        run: |
-          if [ -d scripts ]; then
-            echo "FAIL: scripts/ dir exists. All logic moved to brain CLI (cli flavour) or raw curl (api flavour)."
-            exit 1
-          fi
+          for legacy in scripts skills-cli skills-api; do
+            if [ -d "$legacy" ]; then
+              echo "FAIL: $legacy/ exists. v0.3 ships only `skills/`."
+              exit 1
+            fi
+          done
       - name: No skill references node scripts/*.js
         run: |
-          if grep -rnE 'node[[:space:]]+[^[:space:]]*scripts/[^[:space:]]+\.js' skills-cli/ skills-api/; then
+          if grep -rnE 'node[[:space:]]+[^[:space:]]*scripts/[^[:space:]]+\.js' skills/; then
             echo "FAIL: a skill still invokes the legacy node scripts."
             exit 1
           fi
-      - name: CLI skills must invoke `brain`
+      - name: No skill references the brain CLI (this is the API flavour)
         run: |
           fail=0
-          for skill in skills-cli/*/SKILL.md; do
-            # brain-cli/SKILL.md is the reference — doc-only, may not invoke brain in code blocks.
-            if [ "$(basename $(dirname $skill))" = "brain-cli" ]; then continue; fi
-            grep -q '\bbrain\b' "$skill" || { echo "FAIL: $skill doesn't mention brain"; fail=1; }
+          for skill in skills/*/SKILL.md; do
+            # grep-api-reference is allowed to mention brain in compat notes;
+            # other skills must not invoke it.
+            if [ "$(basename $(dirname $skill))" = "grep-api-reference" ]; then continue; fi
+            if grep -qE '^\s*brain\s+\w' "$skill"; then
+              echo "FAIL: $skill invokes \`brain\` — this is the API flavour"
+              fail=1
+            fi
           done
           exit $fail
-      - name: API skills must invoke `curl`
+      - name: Every skill invokes curl
         run: |
           fail=0
-          for skill in skills-api/*/SKILL.md; do
-            # grep-api-reference is the reference — doc-only.
+          for skill in skills/*/SKILL.md; do
+            # grep-api-reference is doc-only; allowed to omit curl invocations.
             if [ "$(basename $(dirname $skill))" = "grep-api-reference" ]; then continue; fi
             grep -q '\bcurl\b' "$skill" || { echo "FAIL: $skill doesn't invoke curl"; fail=1; }
           done
           exit $fail
 
-  installer-smoke-api:
-    name: Installer smoke (API flavour, default)
+  installer-smoke:
+    name: Installer smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Run installer without flag (should default to api)
-        run: |
-          HOME="$RUNNER_TEMP/fakehome" node bin/install.js
-      - name: Flavour file = api
-        run: |
-          test "$(cat $RUNNER_TEMP/fakehome/.grep-research-skills/.flavour)" = "api"
+      - name: Run installer
+        run: HOME="$RUNNER_TEMP/fakehome" node bin/install.js
       - name: Descope project ID seeded
         run: |
           CFG="$RUNNER_TEMP/fakehome/.config/brain/config.toml"
           test -f "$CFG"
           grep -q '^descope_project_id' "$CFG"
           grep -q 'P38Xct9AhA95T0MU5T8g7o9V9886' "$CFG"
-      - name: Every API skill symlinked
+      - name: config.toml is mode 0600
+        run: |
+          test "$(stat -c '%a' $RUNNER_TEMP/fakehome/.config/brain/config.toml)" = "600"
+      - name: Every skill symlinked
         run: |
           SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
           for s in research quick-research ultra-research grep-login grep-status grep-upgrade grep-plan grep-skill-creator grep-defaults grep-inputs grep-api-reference; do
             test -L "$SKILLS/$s" || { echo "FAIL: $s not symlinked"; exit 1; }
           done
-      - name: config.toml is mode 0600
-        run: |
-          test "$(stat -c '%a' $RUNNER_TEMP/fakehome/.config/brain/config.toml)" = "600"
       - name: No brain binary was fetched
         run: |
           test ! -f "$RUNNER_TEMP/fakehome/.local/bin/brain"
       - name: Idempotent re-run
         run: |
           HOME="$RUNNER_TEMP/fakehome" node bin/install.js
-          test "$(cat $RUNNER_TEMP/fakehome/.grep-research-skills/.flavour)" = "api"
+          # Skills still present.
+          SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
+          for s in research quick-research ultra-research grep-login grep-status grep-upgrade grep-plan grep-skill-creator grep-defaults grep-inputs grep-api-reference; do
+            test -L "$SKILLS/$s" || { echo "FAIL: $s lost on re-install"; exit 1; }
+          done
+          # Single descope_project_id line.
           COUNT=$(grep -c '^descope_project_id' $RUNNER_TEMP/fakehome/.config/brain/config.toml)
           test "$COUNT" = "1"
-
-  installer-smoke-cli:
-    name: Installer smoke (CLI flavour)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Stub brain binary on PATH
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          cat > "$HOME/.local/bin/brain" <<'EOF'
-          #!/bin/sh
-          case "${1:-}" in
-            --version) echo "brain 0.2.0" ;;
-            *) exit 0 ;;
-          esac
-          EOF
-          chmod +x "$HOME/.local/bin/brain"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Run installer --cli with SKIP_BRAIN_INSTALL
-        run: |
-          SKIP_BRAIN_INSTALL=1 HOME="$RUNNER_TEMP/fakehome" node bin/install.js --cli
-      - name: Flavour file = cli
-        run: |
-          test "$(cat $RUNNER_TEMP/fakehome/.grep-research-skills/.flavour)" = "cli"
-      - name: Every CLI skill symlinked
-        run: |
-          SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
-          for s in research quick-research ultra-research grep-login grep-status grep-upgrade grep-plan grep-skill-creator grep-defaults grep-inputs brain-cli; do
-            test -L "$SKILLS/$s" || { echo "FAIL: $s not symlinked"; exit 1; }
-          done
-      - name: API flavour's grep-api-reference NOT symlinked in CLI install
-        run: |
-          test ! -L "$RUNNER_TEMP/fakehome/.claude/skills/grep-api-reference"
-
-  flavour-switch:
-    name: Switch flavours cleanly
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Stub brain
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "brain 0.2.0" || :\n' > "$HOME/.local/bin/brain"
-          chmod +x "$HOME/.local/bin/brain"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Install API
-        run: HOME="$RUNNER_TEMP/fakehome" node bin/install.js --api
-      - name: Then switch to CLI
-        run: SKIP_BRAIN_INSTALL=1 HOME="$RUNNER_TEMP/fakehome" node bin/install.js --cli
-      - name: grep-api-reference symlink is gone (CLI install cleaned it up)
-        run: |
-          test ! -L "$RUNNER_TEMP/fakehome/.claude/skills/grep-api-reference"
-      - name: brain-cli symlink is present
-        run: |
-          test -L "$RUNNER_TEMP/fakehome/.claude/skills/brain-cli"
-      - name: Switch back to API
-        run: HOME="$RUNNER_TEMP/fakehome" node bin/install.js --api
-      - name: brain-cli symlink is gone, grep-api-reference is back
-        run: |
-          test ! -L "$RUNNER_TEMP/fakehome/.claude/skills/brain-cli"
-          test -L "$RUNNER_TEMP/fakehome/.claude/skills/grep-api-reference"

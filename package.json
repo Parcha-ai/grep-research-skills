@@ -1,7 +1,7 @@
 {
   "name": "grep-research-skills",
   "version": "0.3.0",
-  "description": "Give your AI agent deep research superpowers. Connects Claude Code, Cowork, and OpenClaw to GREP — API flavour (no binary needed) or CLI flavour (via the brain Rust CLI).",
+  "description": "Give your AI agent deep research superpowers. 11 skills connecting Claude Code, Cowork, and OpenClaw to GREP via raw HTTP — no binary required.",
   "author": {
     "name": "Parcha Labs",
     "url": "https://grep.ai"
@@ -18,24 +18,22 @@
     "deep-research",
     "claude-code",
     "claude-code-skill",
+    "claude-code-plugin",
     "cowork",
     "openclaw",
     "ai-agent",
-    "claude",
-    "brain-cli"
+    "claude"
   ],
   "bin": {
     "grep-research-skills": "./bin/install.js"
   },
   "files": [
     "bin/",
-    "skills-api/",
-    "skills-cli/",
+    "skills/",
     "setup",
     ".claude-plugin/"
   ],
   "engines": {
     "node": ">=18"
-  },
-  "brainCliMinVersion": "0.2.0"
+  }
 }

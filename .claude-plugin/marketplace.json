@@ -2,8 +2,8 @@
   "plugins": [
     {
       "name": "grep-research-skills",
-      "version": "0.1.0",
-      "description": "Deep research superpowers for your AI agent. Three research tiers (quick ~25s, deep ~5min, ultra up to 1hr) powered by GREP.",
+      "version": "0.3.0",
+      "description": "Deep research via GREP — 11 skills, raw HTTP, no binary required. Works in sandboxed Claude Code environments.",
       "path": "."
     }
   ]
