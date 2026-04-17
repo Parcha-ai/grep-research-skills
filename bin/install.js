@@ -80,15 +80,19 @@ function symlinkSkill(skillDir, targetDir, skillName) {
  * which may not be on PATH yet.
  */
 function findBrain() {
-  // try via `which`
-  try {
-    const out = execSync('command -v brain', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    const trimmed = out.trim();
-    if (trimmed) return trimmed;
-  } catch {/* not on PATH */}
-  // fall back to ~/.local/bin/brain
+  // Check the installer's canonical location first — works everywhere
+  // including Windows where `command -v` is not available.
   const local = path.join(BRAIN_BIN_DIR, 'brain');
   if (fs.existsSync(local)) return local;
+
+  // Unix: consult PATH via `command -v`.
+  if (process.platform !== 'win32') {
+    try {
+      const out = execSync('command -v brain', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const trimmed = out.trim();
+      if (trimmed) return trimmed;
+    } catch {/* not on PATH */}
+  }
   return null;
 }
 
