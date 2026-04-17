@@ -27,23 +27,18 @@ Set expectations clearly.
 
 ## Prerequisites
 
-The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
-
-## Resolve the script path
-
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+* `brain` CLI on `$PATH`. Run `npx grep-research-skills` once if missing.
+* The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
 
 ## Step 1: Submit the job (non-blocking)
 
-Use the `research` subcommand (not `run`) so submission returns immediately with a job ID:
+Submit without `--wait` so the command returns immediately with a job ID:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" research "$ARGUMENTS" --depth=ultra_deep
+brain research submit "$ARGUMENTS" --depth ultra_deep --json
 ```
 
-The output is a JSON object with a `job_id` field. Capture that value — you'll need it for the loop.
+The output is a JSON object with a `job_id` (or `id`) field. Capture that value — you'll need it for the loop.
 
 ## Step 2: Tell the user
 
@@ -53,15 +48,15 @@ After capturing the job_id, send a message like:
 
 ## Step 3: Schedule a recurring check via /loop
 
-Invoke the `/loop` skill with a 5-minute interval and a prompt that checks the job status and self-terminates when complete. Use the Skill tool to call `loop` with this argument (substituting the real `job_id` and `SCRIPTS_DIR` values):
+Invoke the `/loop` skill with a 5-minute interval and a prompt that checks the job status and self-terminates when complete. Use the Skill tool to call `loop` with this argument (substituting the real `job_id`):
 
 ```
 5m Check GREP ultra-research job <job_id>. Run this exact command:
 
-  node "<SCRIPTS_DIR>/grep-api.js" result <job_id>
+  brain research get <job_id> --include-status-messages
 
 Then:
-- If the output's top line says "Status: completed" or contains a full report (## headings, citations), present the FULL report to the user in a cleanly structured way (TL;DR, key sections, sources, caveats). Then run CronList, find the cron job whose prompt contains "Check GREP ultra-research job <job_id>", and call CronDelete with its id to stop polling.
+- If the output's top line says "Status: complete" (or "completed") or contains a full report (## headings, citations), present the FULL report to the user in a cleanly structured way (TL;DR, key sections, sources, caveats). Then run CronList, find the cron job whose prompt contains "Check GREP ultra-research job <job_id>", and call CronDelete with its id to stop polling.
 - If status is "running", "pending", or similar, briefly tell the user "Still running (<elapsed>)". Do NOT present partial results. Do NOT delete the cron.
 - If status is "failed", report the error and call CronDelete to stop polling.
 ```
@@ -95,7 +90,7 @@ Ultra-deep reports are dense. Structure the presentation:
 
 ## Anti-patterns
 
-- Do NOT use `run` (the blocking command) for ultra_deep — it will hit the bash 10-min cap and fail before the job completes.
+- Do NOT use `--wait` with `--depth ultra_deep` — it will hit the bash 10-min cap and fail before the job completes.
 - Do NOT default to `/ultra-research`. Start with `/research` and escalate only if needed.
 - Do NOT set the loop interval below 5m. Ultra-deep jobs don't benefit from aggressive polling — it just wastes cron fires.
 - Do NOT forget to call `CronDelete` in the prompt's completion branch. Otherwise the cron will keep firing for 7 days.

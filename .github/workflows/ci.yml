@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-skills:
+    name: Lint SKILL.md files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every skill must have a well-formed frontmatter
+        run: |
+          set -eu
+          fail=0
+          for skill in skills/*/SKILL.md; do
+            head -n1 "$skill" | grep -q '^---$' || { echo "FAIL: $skill: missing frontmatter opener"; fail=1; }
+            grep -q '^name:' "$skill"          || { echo "FAIL: $skill: missing name"; fail=1; }
+            grep -q '^description:' "$skill"   || { echo "FAIL: $skill: missing description"; fail=1; }
+          done
+          exit $fail
+
+  ensure-no-legacy-scripts:
+    name: No legacy Node scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The `scripts/` directory must not exist (migrated to brain CLI)
+        run: |
+          if [ -d scripts ]; then
+            echo "FAIL: scripts/ directory exists. All logic moved to the brain CLI in v0.2; delete this directory."
+            exit 1
+          fi
+      - name: No skill references node scripts/*.js any more
+        run: |
+          if grep -rnE 'node.*scripts/.*\.js' skills/; then
+            echo "FAIL: a skill still invokes the legacy node scripts. Replace with `brain <cmd>`."
+            exit 1
+          fi
+      - name: Every skill mentions `brain` (proxy: migration complete)
+        run: |
+          missing=0
+          for skill in skills/*/SKILL.md; do
+            if ! grep -q '\bbrain\b' "$skill"; then
+              echo "WARN: $skill does not mention the brain CLI"
+              missing=$((missing+1))
+            fi
+          done
+          echo "skills without brain reference: $missing (informational)"
+
+  installer-smoke:
+    name: Installer smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Stub brain binary
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cat > "$HOME/.local/bin/brain" <<'EOF'
+          #!/bin/sh
+          case "${1:-}" in
+            --version) echo "brain 0.1.0" ;;
+            *) exit 0 ;;
+          esac
+          EOF
+          chmod +x "$HOME/.local/bin/brain"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run installer with SKIP_BRAIN_INSTALL
+        run: |
+          SKIP_BRAIN_INSTALL=1 HOME="$RUNNER_TEMP/fakehome" node bin/install.js
+      - name: Confirm descope_project_id was seeded
+        run: |
+          set -eu
+          CFG="$RUNNER_TEMP/fakehome/.config/brain/config.toml"
+          test -f "$CFG" || { echo "FAIL: $CFG not created"; exit 1; }
+          grep -q '^descope_project_id' "$CFG" || { echo "FAIL: descope_project_id not seeded"; exit 1; }
+          grep -q 'P38Xct9AhA95T0MU5T8g7o9V9886' "$CFG"
+      - name: Confirm skills symlinked
+        run: |
+          set -eu
+          SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
+          test -d "$SKILLS"
+          ls -la "$SKILLS"
+          test -L "$SKILLS/research"
+          test -L "$SKILLS/brain-cli"

@@ -11,11 +11,9 @@ Authenticate the user with their GREP account. Three methods:
 - **API key** — paste a long-lived key (best for CI, headless, and agents)
 - **Sign up** — create an account at grep.ai first
 
-## Resolve the script path
+## Prerequisite
 
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+`brain` CLI on `$PATH`. The `grep-research-skills` installer drops it into `~/.local/bin/brain`. If `brain --version` is missing, run `npx grep-research-skills` before proceeding.
 
 ## Direct arguments (for agents and automation)
 
@@ -24,7 +22,7 @@ If the user passes arguments directly, skip the interactive questions:
 - **`/grep-login user@example.com`** — treat as email, go straight to OTP flow (Step 1 with this email)
 - **`/grep-login --api-key grp_abc123`** — save the API key immediately:
   ```bash
-  node "${SCRIPTS_DIR}/auth.js" set-api-key "<api_key>"
+  brain auth set-api-key --key "<api_key>" --json
   ```
   On success, skip to Step 5.5 (waitlist check). On failure, report the error.
 - **`/grep-login --api-key grp_abc123 --email user@example.com`** — save API key, associate with email
@@ -69,12 +67,12 @@ Ask the user for their API key via **AskUserQuestion** (free-text input):
 Then save it as the session:
 
 ```bash
-node "${SCRIPTS_DIR}/auth.js" set-api-key "<api_key>"
+brain auth set-api-key --key "<api_key>" --json
 ```
 
 Output:
 - Success: `{"ok": true, "authMethod": "api_key", "tier": "..."}` — session saved
-- Failure: `{"ok": false, "error": "..."}` — likely invalid key
+- Failure: non-zero exit with an error message — likely invalid key
 
 On success, skip to Step 6 (check onboarding status). On failure, tell the user the key was invalid and offer to try again or pick "Log in" instead.
 
@@ -93,7 +91,7 @@ Use **AskUserQuestion**:
 #### Step 0b: Send the enchanted link
 
 ```bash
-node "${SCRIPTS_DIR}/auth.js" enchanted-send "<email>"
+brain auth enchanted-send "<email>" --json
 ```
 
 This returns JSON: `{ "ok": true, "pendingRef": "...", "linkId": "42", "maskedEmail": "..." }`
@@ -105,12 +103,12 @@ Tell the user: "Check your email and **click link #42** (the number matching you
 Run in background (`run_in_background: true`):
 
 ```bash
-node "${SCRIPTS_DIR}/auth.js" enchanted-poll "<pendingRef>"
+brain auth enchanted-poll "<pendingRef>" --max-wait 600 --json
 ```
 
 Run with `timeout: 660000` (11 minutes). The command polls Descope every 2 seconds until the user clicks the link. Output:
 - Success: `{"ok": true, "email": "...", "firstSeen": true/false}` — session saved
-- Timeout (exit code 2): `{"ok": false, "status": "timeout"}`
+- Timeout: non-zero exit with `{"ok": false, "status": "timeout"}`
 
 **What happens when they click:** The enchanted link takes them to the verify page, which:
 1. Verifies the token (unblocks the terminal poll)
@@ -142,7 +140,7 @@ Use **AskUserQuestion** with a free-text option:
 ### Step 2: Send the verification code
 
 ```bash
-node "${SCRIPTS_DIR}/auth.js" send-code "<email>"
+brain auth send-code "<email>" --json
 ```
 
 This is non-interactive — it just hits the Descope OTP endpoint and exits. Output is a JSON line: `{"ok": true, "email": "...", "message": "Code sent"}`.
@@ -162,12 +160,12 @@ The user will type the code as free text.
 ### Step 4: Verify the code
 
 ```bash
-node "${SCRIPTS_DIR}/auth.js" verify "<email>" "<code>"
+brain auth verify "<email>" "<code>" --json
 ```
 
 This is also non-interactive. Output:
-- Success: `{"ok": true, "email": "..."}` — session is saved to `~/.grep/session.json`
-- Failure: `{"ok": false, "error": "..."}` — exit code 1
+- Success: `{"ok": true, "email": "...", "authMethod": "otp"}` — session is saved to `~/.grep/session.json`
+- Failure: non-zero exit with an error message
 
 ### Step 5: Confirm or recover
 
@@ -180,7 +178,7 @@ This is also non-interactive. Output:
 **First, check if the user is on the waitlist.** This takes precedence over onboarding and billing — waitlisted users can't use `/research` or buy a plan yet.
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" waitlist
+brain status waitlist --json
 ```
 
 Returns JSON: `{ "on_waitlist": true/false }`.
@@ -209,7 +207,7 @@ Stop here. Do NOT proceed to onboarding or billing checks.
 After successful authentication and waitlist clearance, check whether the user has completed onboarding at grep.ai:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" onboarding
+brain status onboarding --json
 ```
 
 This returns JSON with a `has_completed_onboarding` field (true/false).
@@ -237,9 +235,8 @@ Then **poll in the background** for onboarding completion. Use a loop that check
 ```bash
 for i in $(seq 1 20); do
   sleep 15
-  RESULT=$(node "${SCRIPTS_DIR}/billing.js" onboarding 2>/dev/null)
-  COMPLETED=$(echo "$RESULT" | node -e "process.stdin.on('data',d=>{try{console.log(JSON.parse(d).has_completed_onboarding)}catch{console.log('false')}})")
-  if [ "$COMPLETED" = "true" ]; then
+  COMPLETED=$(brain status onboarding --json 2>/dev/null | grep -o '"has_completed_onboarding":true')
+  if [ -n "$COMPLETED" ]; then
     echo '{"onboarding_complete": true}'
     exit 0
   fi
@@ -257,7 +254,7 @@ Run this as a **background Bash command** (`run_in_background: true`) so the use
 Check their billing status:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" status
+brain billing status --json
 ```
 
 Based on the response:
@@ -273,6 +270,6 @@ Based on the response:
 
 ## Anti-patterns
 
-- Do NOT use `auth.js login <email>` for this skill — that's the interactive terminal flow and will block waiting for stdin.
+- Do NOT use `brain auth login` for this skill — that's the interactive terminal flow and will block waiting for stdin.
 - Do NOT call `send-code` twice in a row before the user has had a chance to enter the first code. Each send invalidates the previous.
 - Do NOT ask for the code via a plain prose message if AskUserQuestion is available — the native input box is a better UX.

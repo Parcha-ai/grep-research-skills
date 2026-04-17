@@ -16,11 +16,9 @@ Use `/grep-plan` instead of jumping straight into `/plan` when:
 - Working with protocols you haven't used recently (WebSockets, gRPC, OAuth2, etc.)
 - Any task where guessing wrong means hours of debugging
 
-## Resolve the script path
+## Prerequisite
 
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+`brain` CLI on `$PATH`. Run `npx grep-research-skills` once if missing.
 
 ## Step 1: Clarify the request
 
@@ -110,7 +108,7 @@ Adapt the template to the specific topic. For example:
 ## Step 4: Run the research
 
 ```bash
-node "${SCRIPTS_DIR}/grep-api.js" run "<research_question>" --depth=deep --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
+brain research submit "<research_question>" --depth deep --wait --timeout 540 --context-file "$CONTEXT_FILE" 2>&1
 ```
 
 Use Monitor with `timeout_ms: 560000` if available, otherwise fall back to blocking Bash with `timeout: 560000`.

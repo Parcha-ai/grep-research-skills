@@ -72,7 +72,7 @@ CONTEXT_FILE=$(mktemp /tmp/grep-research-context.XXXXXX)
 
 **1. Relevant existing code** — if the user is researching how to do X and they already have code that does something related, include it. This tells GREP what patterns, libraries, and conventions are in play.
 
-Example: researching "Descope device flow for CLI auth" → include the existing `auth.js` that already does Descope OTP. GREP will return endpoints and code that match the existing implementation style.
+Example: researching "Descope device flow for CLI auth" → include an existing auth module that already does Descope OTP. GREP will return endpoints and code that match the existing implementation style.
 
 ```bash
 # Read files directly related to the research topic
@@ -127,21 +127,15 @@ The refined query should include:
 
 ## Prerequisites
 
-The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
-
-## Resolve the script path
-
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+* `brain` CLI on `$PATH`. The installer drops it into `~/.local/bin/brain` — run `npx grep-research-skills` if `brain --version` is missing.
+* The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
 
 ## Run it (preferred: Monitor for live streaming)
 
 If the Monitor tool is available, use it to stream live status updates to the user while the research runs. This is the preferred approach — the user sees what the agent is thinking, searching, and reading in real time instead of staring at silence for 5 minutes.
 
 ```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
+brain research submit "<refined_query>" --depth deep --wait --timeout 540 --context-file "$CONTEXT_FILE" 2>&1
 ```
 
 **Clean up after the research completes:**
@@ -168,14 +162,14 @@ The user invoked `/research` because they need an answer. A research job that co
 If Monitor is not available, fall back to blocking Bash:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE"
+brain research submit "<refined_query>" --depth deep --wait --timeout 540 --context-file "$CONTEXT_FILE"
 ```
 
 Clean up after: `rm -f "$CONTEXT_FILE"`
 
-**IMPORTANT:** Invoke this bash command with a tool `timeout` of exactly `560000` (560 seconds / ~9.3 min). That's the maximum headroom you can give — Claude Code's bash tool caps at 10 minutes (600000). The `--max-wait=540` leaves 20s of slack for Node to print results and exit cleanly before bash would kill it.
+**IMPORTANT:** Invoke this bash command with a tool `timeout` of exactly `560000` (560 seconds / ~9.3 min). That's the maximum headroom you can give — Claude Code's bash tool caps at 10 minutes (600000). The `--timeout 540` leaves 20s of slack for `brain` to print results and exit cleanly before bash would kill it.
 
-If research takes longer than 9 minutes (uncommon but possible for complex queries), the command exits with code 2 and returns a `job_id`. See "If the job times out" below.
+If research takes longer than 9 minutes (uncommon but possible for complex queries), the command exits non-zero and the last-seen `job_id` is printed. See "If the job times out" below.
 
 The command prints heartbeats and live status messages to stderr while polling (what the research agent is thinking, searching, reading). Share these updates with the user as they arrive so they can follow the research in real time. The final report prints to stdout when complete.
 
@@ -193,7 +187,7 @@ The report comes back with headings, structure, and citations. Present it cleanl
 
 ## If the job times out
 
-Exit code 2 means the server is still running. The JSON payload includes a `job_id`. Tell the user "Research is still running (job: {job_id}). I'll check back in a minute" and use `/grep-status` with the job ID to retrieve the final report, or rerun in a minute.
+The CLI exits non-zero when `--timeout` elapses and prints the `job_id` to stderr. Tell the user "Research is still running (job: {job_id}). I'll check back in a minute" and use `/grep-status` with the job ID to retrieve the final report, or rerun in a minute.
 
 ## Anti-patterns
 

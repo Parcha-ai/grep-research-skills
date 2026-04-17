@@ -19,23 +19,15 @@ Fastest GREP tier. ~25 seconds end-to-end. Single command, single blocking call,
 
 ## Prerequisites
 
-The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
-
-## Resolve the script path
-
-The skill dir is usually symlinked, so always resolve:
-
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+* `brain` CLI on `$PATH`. The installer drops it into `~/.local/bin/brain` — run `npx grep-research-skills` if `brain --version` is missing.
+* The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
 
 ## Run it (preferred: Monitor for live streaming)
 
 If the Monitor tool is available, use it to stream live status updates:
 
 ```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60 2>&1
+brain research submit "$ARGUMENTS" --depth ultra_fast --wait --timeout 60 2>&1
 ```
 
 Use Monitor with `timeout_ms: 80000` and `persistent: false`. With `2>&1`, status updates and the final report both stream as events.
@@ -53,10 +45,10 @@ Whether the command runs via Monitor, blocking Bash, or gets backgrounded by the
 If Monitor is not available:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60
+brain research submit "$ARGUMENTS" --depth ultra_fast --wait --timeout 60
 ```
 
-**IMPORTANT:** Invoke this bash command with a tool `timeout` of at least `80000` (80 seconds) to give Node headroom over the 60s server-side wait.
+**IMPORTANT:** Invoke this bash command with a tool `timeout` of at least `80000` (80 seconds) to give the CLI headroom over the 60s server-side wait.
 
 The command prints heartbeats and live status messages to stderr while polling. Share these updates with the user as they arrive. The final report prints to stdout when complete.
 
@@ -70,9 +62,9 @@ The output is typically short — a direct answer with 1-3 citations. Present it
 
 ## If the job times out
 
-Exit code 2 means the server is still working. The JSON payload will include a `job_id`. Use `/grep-status` with the job ID to resume, or wait and rerun.
+The CLI exits non-zero when `--timeout` elapses. The last-seen `job_id` is printed to stderr — use `/grep-status` with it to resume, or wait and rerun.
 
 ## Anti-patterns
 
 - Do NOT use `/quick-research` for complex investigations. If the question has multiple sub-questions or needs cross-referencing, use `/research` instead.
-- Do NOT invoke with the default 120s bash timeout without the `--max-wait=60` cap — Node needs to exit before the bash tool kills it.
+- Do NOT invoke with the default 120s bash timeout without the `--timeout 60` cap — the CLI needs to exit before the bash tool kills it.

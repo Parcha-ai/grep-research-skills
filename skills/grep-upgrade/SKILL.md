@@ -8,18 +8,16 @@ disable-model-invocation: true
 
 Help the user choose a subscription plan or upgrade their existing one. Presents plan options, creates a Stripe checkout session, and opens the payment page in their browser.
 
-## Resolve the script path
+## Prerequisite
 
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+`brain` CLI on `$PATH`. Run `npx grep-research-skills` once if missing.
 
 ## Step 1: Check waitlist and subscription status
 
 First, check if the user is waitlisted:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" waitlist
+brain status waitlist --json
 ```
 
 This returns `{ "on_waitlist": true/false }`. If `on_waitlist` is `true`, tell the user:
@@ -30,7 +28,7 @@ Do NOT present plan options to waitlisted users. Stop here.
 If not waitlisted, check their current plan:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" status
+brain billing status --json
 ```
 
 The response is JSON with these key fields:
@@ -78,7 +76,7 @@ Ask about billing interval with **AskUserQuestion**:
 Then create the checkout session:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" checkout <tier> <month|year>
+brain billing checkout --tier <basic|pro|ultra> --interval <month|year> --json
 ```
 
 The response is JSON with a `checkout_url` field. Open it in the user's browser:
@@ -103,7 +101,7 @@ If custom, ask for the dollar amount in a follow-up question.
 Convert to cents and activate:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" payg <amount_cents>
+brain billing payg --amount-cents <amount_cents> --json
 ```
 
 The response contains a `checkout_url`. Open it in the browser just like the subscription flow.
@@ -113,7 +111,7 @@ The response contains a `checkout_url`. Open it in the browser just like the sub
 After the user returns from Stripe, verify their plan updated:
 
 ```bash
-node "${SCRIPTS_DIR}/billing.js" status
+brain billing status --json
 ```
 
 If the tier has changed from "free", confirm:

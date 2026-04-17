@@ -7,11 +7,9 @@ description: Create a high-quality SKILL.md for any AI agent skill, powered by G
 
 Create a new SKILL.md file for an AI agent skill, informed by deep research on the target domain. This skill gathers requirements from the user, researches the relevant APIs/tools/patterns, then generates a complete skill file following established conventions.
 
-## Resolve the script path
+## Prerequisite
 
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+`brain` CLI on `$PATH`. Run `npx grep-research-skills` once if missing.
 
 ## Step 1: Understand what the user wants
 
@@ -102,7 +100,7 @@ Adapt the template based on the skill type:
 Run the research:
 
 ```bash
-node "${SCRIPTS_DIR}/grep-api.js" run "<research_question>" --depth=deep --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
+brain research submit "<research_question>" --depth deep --wait --timeout 540 --context-file "$CONTEXT_FILE" 2>&1
 ```
 
 Use Monitor with `timeout_ms: 560000` if available. Tell the user: "Researching [topic] to build an accurate skill. This takes about 5 minutes."
@@ -129,11 +127,7 @@ Set `disable-model-invocation: true` only if the skill is purely mechanical (no 
 
 ### Structure
 1. **Title and overview** — what the skill does in 1-2 sentences
-2. **Script path resolution** — use the standard symlink-safe pattern:
-   ```bash
-   SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-   ```
-   Only include this if the skill calls scripts from this repo. If it's a standalone skill using external tools, skip it.
+2. **Prerequisites** — note that `brain` must be on `$PATH`. No script-path resolution is needed any more — skills call `brain <subcommand>` directly.
 3. **Steps** — numbered steps with clear bash code blocks. Each step should:
    - Explain what it does and why
    - Include the exact bash command

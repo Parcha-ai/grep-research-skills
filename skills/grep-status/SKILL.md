@@ -7,30 +7,34 @@ description: Check GREP authentication status, view recent research jobs, or che
 
 Check authentication and job status.
 
-## Resolve the script path
+## Prerequisite
 
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
+`brain` on `$PATH`. Run `npx grep-research-skills` once if missing.
 
 ## Check Authentication
 
 ```bash
-node "$SCRIPTS_DIR/auth.js" status
+brain auth status
 ```
 
-Reports whether the user is authenticated and session health.
+Reports whether the user is authenticated and session health. Add `--json` for scripting.
 
 ## Check a Specific Job
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" status <job_id>
+brain research get <job_id> --include-status-messages
+# Or raw:
+brain jobs <job_id> --json
 ```
+
+If the job is complete, also run `brain report <job_id>` to print the full report.
 
 ## List Recent Jobs
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" jobs
+brain jobs --limit 20
+# Or JSON:
+brain research list --json
 ```
 
 ## Present Status Clearly
