@@ -20,12 +20,12 @@ Authenticate the user with their GREP account. Three methods:
 If the user passes arguments directly, skip the interactive questions:
 
 - **`/grep-login user@example.com`** — treat as email, go straight to OTP flow (Step 1 with this email)
-- **`/grep-login --api-key grp_abc123`** — save the API key immediately:
+- **`/grep-login --api-key <api_key>`** — save the API key immediately:
   ```bash
   brain auth set-api-key --key "<api_key>" --json
   ```
   On success, skip to Step 5.5 (waitlist check). On failure, report the error.
-- **`/grep-login --api-key grp_abc123 --email user@example.com`** — save API key, associate with email
+- **`/grep-login --api-key <api_key> --email user@example.com`** — save API key, associate with email
 
 If `$ARGUMENTS` is empty or doesn't match the above patterns, proceed to Step 0.
 
@@ -235,8 +235,11 @@ Then **poll in the background** for onboarding completion. Use a loop that check
 ```bash
 for i in $(seq 1 20); do
   sleep 15
-  COMPLETED=$(brain status onboarding --json 2>/dev/null | grep -o '"has_completed_onboarding":true')
-  if [ -n "$COMPLETED" ]; then
+  # brain emits pretty-printed JSON (space after colon), so parse via node
+  # instead of naive grep.
+  COMPLETED=$(brain status onboarding --json 2>/dev/null \
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).has_completed_onboarding?'true':'false')}catch{process.stdout.write('false')}})")
+  if [ "$COMPLETED" = "true" ]; then
     echo '{"onboarding_complete": true}'
     exit 0
   fi

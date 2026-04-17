@@ -80,11 +80,35 @@ jobs:
           test -f "$CFG" || { echo "FAIL: $CFG not created"; exit 1; }
           grep -q '^descope_project_id' "$CFG" || { echo "FAIL: descope_project_id not seeded"; exit 1; }
           grep -q 'P38Xct9AhA95T0MU5T8g7o9V9886' "$CFG"
-      - name: Confirm skills symlinked
+      - name: Confirm every skill symlinked
         run: |
           set -eu
           SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
           test -d "$SKILLS"
           ls -la "$SKILLS"
-          test -L "$SKILLS/research"
-          test -L "$SKILLS/brain-cli"
+          missing=0
+          for s in research quick-research ultra-research grep-login grep-status grep-upgrade grep-plan grep-skill-creator brain-cli; do
+            if [ ! -L "$SKILLS/$s" ]; then
+              echo "FAIL: $SKILLS/$s is not a symlink"
+              missing=$((missing+1))
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+      - name: Confirm config.toml is mode 0600
+        run: |
+          set -eu
+          CFG="$RUNNER_TEMP/fakehome/.config/brain/config.toml"
+          MODE=$(stat -c '%a' "$CFG")
+          test "$MODE" = "600" || { echo "FAIL: expected 0600, got $MODE"; exit 1; }
+      - name: Installer is idempotent (second run)
+        run: |
+          SKIP_BRAIN_INSTALL=1 HOME="$RUNNER_TEMP/fakehome" node bin/install.js
+          # After a second run the skills/ dir should still contain every skill
+          SKILLS="$RUNNER_TEMP/fakehome/.claude/skills"
+          for s in research quick-research ultra-research grep-login grep-status grep-upgrade grep-plan grep-skill-creator brain-cli; do
+            test -L "$SKILLS/$s" || { echo "FAIL: $s lost on re-install"; exit 1; }
+          done
+          # config.toml still contains exactly one descope_project_id line
+          CFG="$RUNNER_TEMP/fakehome/.config/brain/config.toml"
+          COUNT=$(grep -c '^descope_project_id' "$CFG")
+          test "$COUNT" = "1" || { echo "FAIL: descope_project_id appears $COUNT times, expected 1"; exit 1; }

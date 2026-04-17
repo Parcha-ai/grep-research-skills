@@ -17,7 +17,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawnSync } = require('child_process');
+const { execSync, execFileSync, spawnSync } = require('child_process');
 
 const HOME = process.env.HOME || process.env.USERPROFILE;
 const INSTALL_DIR = path.join(HOME, '.grep-research-skills');
@@ -97,18 +97,51 @@ function findBrain() {
 }
 
 function brainVersion(brainPath) {
+  // execFileSync (not execSync): bypasses the shell so paths with spaces work.
   try {
-    const out = execSync(`${brainPath} --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execFileSync(brainPath, ['--version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return out.trim();
   } catch {
     return null;
   }
 }
 
+/** Compare two dotted version strings ("0.1.0", "0.0.9"); returns -1/0/1. */
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const ai = pa[i] || 0;
+    const bi = pb[i] || 0;
+    if (ai > bi) return 1;
+    if (ai < bi) return -1;
+  }
+  return 0;
+}
+
+function extractVersion(versionLine) {
+  // `brain --version` prints "brain 0.1.0"
+  const m = (versionLine || '').match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+
 function installBrain() {
   const SKIP = process.env.SKIP_BRAIN_INSTALL === '1';
   if (SKIP) {
     warn('SKIP_BRAIN_INSTALL=1 — not installing brain; skill commands will fail until `brain` is on PATH.');
+    return null;
+  }
+
+  // On vanilla Windows there's no `sh`, so `curl | sh` won't work. Hand off
+  // to the user with clear instructions rather than silently failing.
+  if (process.platform === 'win32') {
+    err('Automatic brain install is not supported on Windows.');
+    log('Install brain manually: https://github.com/Parcha-ai/brain-cli#install');
+    log('After installing, re-run this installer.');
     return null;
   }
 
@@ -181,9 +214,28 @@ function main() {
   if (brainPath) {
     const ver = brainVersion(brainPath);
     ok(`brain CLI: ${ver || '<version check failed>'} (${brainPath})`);
-    if (!process.env.PATH.split(':').includes(BRAIN_BIN_DIR)) {
-      warn(`${BRAIN_BIN_DIR} is not on your PATH. Add to your shell rc:`);
-      log(`    export PATH="${BRAIN_BIN_DIR}:$PATH"`);
+
+    // Enforce minimum version declared in package.json.
+    const pkg = require(path.join(PKG_ROOT, 'package.json'));
+    const minVer = pkg.brainCliMinVersion;
+    const detected = extractVersion(ver);
+    if (minVer && detected && compareVersions(detected, minVer) < 0) {
+      warn(
+        `brain ${detected} is older than the required ${minVer}. ` +
+        `Upgrade: curl -fsSL https://raw.githubusercontent.com/Parcha-ai/brain-cli/main/install.sh | sh`
+      );
+    }
+
+    // PATH warning — cross-platform separator, guard against undefined PATH.
+    const PATH_ENV = process.env.PATH || process.env.Path || '';
+    const pathEntries = PATH_ENV.split(path.delimiter).filter(Boolean);
+    if (!pathEntries.includes(BRAIN_BIN_DIR)) {
+      warn(`${BRAIN_BIN_DIR} is not on your PATH. Add it:`);
+      if (process.platform === 'win32') {
+        log(`    setx PATH "%PATH%;${BRAIN_BIN_DIR}"`);
+      } else {
+        log(`    export PATH="${BRAIN_BIN_DIR}:$PATH"`);
+      }
     }
   }
 
@@ -195,9 +247,15 @@ function main() {
     ok(`Descope project ID already present in ${BRAIN_CONFIG_FILE}`);
   }
 
-  // 4. Copy skills to persistent location
+  // 4. Copy skills to persistent location.
+  // Wipe the destination first so skills removed in a new version don't
+  // leave stale content behind (symlinks would otherwise keep resolving).
   log('Installing skills to ~/.grep-research-skills/ ...');
-  copyDirSync(path.join(PKG_ROOT, 'skills'), path.join(INSTALL_DIR, 'skills'));
+  const destSkills = path.join(INSTALL_DIR, 'skills');
+  if (fs.existsSync(destSkills)) {
+    fs.rmSync(destSkills, { recursive: true, force: true });
+  }
+  copyDirSync(path.join(PKG_ROOT, 'skills'), destSkills);
 
   const pluginDir = path.join(INSTALL_DIR, '.claude-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });

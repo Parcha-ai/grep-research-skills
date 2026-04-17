@@ -69,8 +69,8 @@ brain auth verify alice@example.com 123456 --json
 
 **Recipe — CI / headless:**
 ```bash
-export BRAIN_API_KEY=parcha-xyz-...
-# or: brain auth set-api-key --key parcha-xyz-...
+export BRAIN_API_KEY=<api_key>
+# or: brain auth set-api-key --key <api_key>
 brain auth status --json  # confirm
 ```
 
@@ -133,7 +133,8 @@ brain billing payg --amount-cents 2500   # minimum 1000 (=$10)
 ```bash
 brain status waitlist                # { "on_waitlist": true|false }
 brain status onboarding              # { "has_completed_onboarding": true|false }
-brain status whoami                  # alias of `brain auth status`
+# whoami lives under `brain auth`:
+brain auth whoami                    # alias of `brain auth status`
 ```
 
 ---
