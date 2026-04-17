@@ -26,6 +26,8 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 
 ## What You Get
 
+### Research
+
 | Skill | Time | Description |
 |-------|------|-------------|
 | `/quick-research <topic>` | ~25s | Fast fact check — version lookups, API endpoint checks, quick pre-code sanity checks |
@@ -33,9 +35,34 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 | `/ultra-research <topic>` | up to 1 hour | Exhaustive investigations — security audits, legal research, full ecosystem surveys |
 | `/grep-plan <topic>` | ~5 min | Research-informed planning — investigates best practices with your codebase as context before you `/plan` |
 | `/grep-skill-creator <description>` | ~5 min | Create a new SKILL.md for any agent skill, powered by deep research on the target domain |
-| `/grep-login` | — | Authenticate with your GREP account (email OTP) |
-| `/grep-upgrade` | — | Choose or change your subscription plan (Free / Pro / Ultra / PAYG) |
-| `/grep-status` | — | Check account status and recent jobs |
+
+### Account
+
+| Skill | Description |
+|-------|-------------|
+| `/grep-login` | Authenticate with your GREP account (email OTP, enchanted link, or API key) |
+| `/grep-upgrade` | Choose or change your subscription plan (Free / Pro / Ultra / PAYG) |
+| `/grep-status` | Check account status and recent jobs |
+
+### Job management *(new in 0.2)*
+
+| Skill | Description |
+|-------|-------------|
+| `/grep-jobs` | List recent jobs (lighter than `/grep-status`) |
+| `/grep-search` | Search past jobs by status / question text |
+| `/grep-resume` | Resume a paused job, optionally with a steering message |
+| `/grep-stop` | Pause or cancel a running check, soft-delete a check result |
+| `/grep-apps` | List app artifacts (slidedecks, podcasts, narratives, HTML exports) |
+
+### Context + workspace *(new in 0.2)*
+
+| Skill | Description |
+|-------|-------------|
+| `/grep-inputs` | Attach per-job input files (CSVs, PDFs, data) to a specific research job |
+| `/grep-defaults` | Manage per-user default context files — uploaded once, hydrated into every research sandbox |
+| `/grep-workspace` | Browse the Pierre-backed workspace tree, read files, view commit history & diffs |
+| `/grep-projects` | Create + manage SOP-driven projects (research workflows with a templated system prompt) |
+| `/grep-experts` | Build + train custom research experts (named personas with their own config + knowledge base) |
 
 ## Getting Started
 
@@ -86,23 +113,36 @@ grep-research-skills/
 ├── .claude-plugin/
 │   ├── plugin.json               # Claude Code plugin manifest
 │   └── marketplace.json          # Claude Code marketplace listing
-├── skills/
-│   ├── research/SKILL.md         # Deep research (~5 min)
-│   ├── quick-research/SKILL.md   # Fast fact check (~25s)
-│   ├── ultra-research/SKILL.md   # Exhaustive research (up to 1 hr)
-│   ├── grep-plan/SKILL.md        # Research-informed planning
-│   ├── grep-skill-creator/SKILL.md # Research-powered skill generator
-│   ├── grep-login/SKILL.md       # Authentication
-│   ├── grep-upgrade/SKILL.md     # Plan selection & Stripe checkout
-│   └── grep-status/SKILL.md      # Status & job checking
+├── skills/                       # 18 skills total
+│   ├── research/                 # — Research —
+│   ├── quick-research/
+│   ├── ultra-research/
+│   ├── grep-plan/
+│   ├── grep-skill-creator/
+│   ├── grep-login/               # — Account —
+│   ├── grep-upgrade/
+│   ├── grep-status/
+│   ├── grep-jobs/                # — Job management (new) —
+│   ├── grep-search/
+│   ├── grep-resume/
+│   ├── grep-stop/
+│   ├── grep-apps/
+│   ├── grep-inputs/              # — Context + workspace (new) —
+│   ├── grep-defaults/
+│   ├── grep-workspace/
+│   ├── grep-projects/
+│   └── grep-experts/
 ├── scripts/
 │   ├── auth.js                   # Descope OTP headless auth
-│   ├── grep-api.js               # GREP API client
+│   ├── grep-api.js               # GREP API client (research, search, inputs,
+│   │                             #   defaults, workspace, projects, experts,
+│   │                             #   lifecycle, apps)
 │   └── billing.js                # Billing & Stripe checkout client
 ├── bin/
 │   └── install.js                # npx installer
 ├── setup                         # Shell installer (git clone fallback)
 ├── package.json
+├── CHANGELOG.md
 └── README.md
 ```
 

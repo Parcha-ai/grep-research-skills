@@ -125,6 +125,24 @@ The refined query should include:
 - What form of answer is most useful (endpoints, code patterns, comparisons, etc.)
 - Any constraints (language, framework, existing patterns to match)
 
+## Advanced flags (use only when the user explicitly asks)
+
+`grep-api.js run` accepts these optional flags to shape the research:
+
+| Flag | Effect |
+|---|---|
+| `--project=projects/<name>` | Run under an SOP-driven project (`SOP.md` becomes the agent's system prompt). See `/grep-projects`. |
+| `--expert=<expert_id>` | Use a built-in or custom expert persona. See `/grep-experts`. |
+| `--language=<en\|es\|fr\|...>` | Response language (ISO 639-1). |
+| `--from-date=YYYY-MM-DD --to-date=YYYY-MM-DD` | Constrain content by date range. |
+| `--additional-thesis="<text>"` | Extra thesis to explore alongside the main question. |
+| `--website=<url>` | Anchor research around a specific website. |
+| `--custom-skills=skill1,skill2` | Inject user-defined skills into the research pipeline. |
+| `--custom-mcp-tools=tool1,tool2` | Inject custom MCP tools. |
+| `--skip-clarification` | Bypass clarification questions (use only for fully-specified queries). |
+
+Most queries don't need any of these — only reach for them when the user's intent clearly calls for them (e.g. they say "use my medical-expert", "limit to 2024", "respond in Spanish", etc.).
+
 ## Prerequisites
 
 The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.

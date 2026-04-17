@@ -17,6 +17,10 @@ Fastest GREP tier. ~25 seconds end-to-end. Single command, single blocking call,
 
 **Rule of thumb:** if you'd be happy with a single well-sourced paragraph, use this. If you need structured coverage of multiple angles, use `/research`. If you need exhaustive multi-source synthesis, use `/ultra-research`.
 
+## Optional flags
+
+`--project=projects/<name>` and `--language=<code>` are the two flags worth knowing here. The other advanced fields documented in `/research` (`--expert`, `--from-date`, `--custom-skills`, etc.) generally don't pair well with a 25-second tier — if the user asks for them, suggest `/research` instead.
+
 ## Prerequisites
 
 The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
