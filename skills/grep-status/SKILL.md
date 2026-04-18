@@ -33,6 +33,8 @@ node "$SCRIPTS_DIR/grep-api.js" status <job_id>
 node "$SCRIPTS_DIR/grep-api.js" jobs
 ```
 
+For filtering by status or substring (e.g. "show me my failed jobs", "find that report about Stripe"), use `/grep-search` instead — it wraps the same listing endpoint with `--status=` and `--query=` filters.
+
 ## Present Status Clearly
 
 - If not authenticated: suggest running `/grep-login`

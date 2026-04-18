@@ -2,8 +2,8 @@
   "plugins": [
     {
       "name": "grep-research-skills",
-      "version": "0.1.0",
-      "description": "Deep research superpowers for your AI agent. Three research tiers (quick ~25s, deep ~5min, ultra up to 1hr) powered by GREP.",
+      "version": "0.2.0",
+      "description": "Deep research via GREP — 18 skills covering three research tiers, custom experts, projects, per-job inputs, per-user defaults, workspace browsing, and lifecycle controls.",
       "path": "."
     }
   ]

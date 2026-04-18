@@ -25,6 +25,12 @@ Set expectations clearly.
 
 **Use sparingly.** Only reach for this tier when the question genuinely warrants exhaustive coverage AND the user has time to wait. For most pre-code research, `/research` is the right tool.
 
+## Optional flags
+
+All the advanced flags from `/research` work here too: `--project=projects/<name>`, `--expert=<id>`, `--language=<code>`, `--from-date`/`--to-date`, `--additional-thesis`, `--website`, `--custom-skills`, `--custom-mcp-tools`, `--skip-clarification`. See `/research` for the full table.
+
+`--action-mode` (have the agent implement instead of report) is admin-only and should only be passed if the user explicitly requests it.
+
 ## Prerequisites
 
 The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.

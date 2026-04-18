@@ -148,6 +148,10 @@ Set `disable-model-invocation: true` only if the skill is purely mechanical (no 
 - Cite specific API versions, endpoints, and auth methods from the research
 - Set realistic timeout expectations for any long-running operations
 
+### Wiring the skill into GREP research jobs
+
+If the new skill should be available to research jobs as a "custom skill" (rather than a Claude Code slash command), the user can pass it via `--custom-skills=skill1,skill2` on `/research` (see that skill's "Advanced flags" section). Custom skills are user-defined research personas that the agent picks up at job dispatch.
+
 ## Step 6: Present the skill and ask where to save it
 
 Show the generated SKILL.md to the user. Then use **AskUserQuestion**:
