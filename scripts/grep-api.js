@@ -24,12 +24,20 @@ const DESCOPE_PROJECT_ID = 'P38Xct9AhA95T0MU5T8g7o9V9886';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
 
 // =============================================================================
-// Session + auth (unchanged from v0.1)
+// Session + auth
 // =============================================================================
 
+// Cached for the lifetime of the process. Polling loops invoke api() ~30+ times
+// per long job; reloading session.json from disk on every call is wasteful.
+// `_session` is null until first load; thereafter we re-use it and only hit
+// disk again if a refresh writes a new session.
+let _session = null;
+
 function loadSession() {
+  if (_session) return _session;
   try {
-    return JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+    _session = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+    return _session;
   } catch (e) {
     return null;
   }
@@ -37,6 +45,7 @@ function loadSession() {
 
 function saveSession(session) {
   fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), { mode: 0o600 });
+  _session = session;
 }
 
 function isExpired(jwt) {
@@ -147,11 +156,34 @@ async function apiMultipart(method, endpoint, parts) {
   try { return JSON.parse(text); } catch { return { _raw: text }; }
 }
 
+// Standard helper: every command function ends with one of these.
+function printResult(result) {
+  console.log(JSON.stringify(result, null, 2));
+}
+
+// Encode a remote path that may contain slashes — preserve the slashes
+// (FastAPI's `:path` catch-all expects them) while escaping each segment.
+function encodeRemotePath(p) {
+  return p.split('/').map(encodeURIComponent).join('/');
+}
+
+// Build the multipart `parts[]` array for a list of local file paths.
+function buildFileParts(files, fieldName = 'files') {
+  return files.map(p => {
+    const f = readFile(p);
+    return { name: fieldName, filename: f.name, value: f.buffer, contentType: f.contentType };
+  });
+}
+
 // Read file → { name, buffer, contentType }
 function readFile(p) {
   const abs = path.resolve(p);
-  if (!fs.existsSync(abs)) throw new Error(`File not found: ${abs}`);
-  const buf = fs.readFileSync(abs);
+  let buf;
+  try {
+    buf = fs.readFileSync(abs);
+  } catch (e) {
+    throw new Error(`Cannot read ${abs}: ${e.message}`);
+  }
   // Best-effort MIME from extension; backend re-detects anyway.
   const ext = path.extname(abs).toLowerCase();
   const mimeMap = {
@@ -180,7 +212,6 @@ function buildSubmitBody(query, options) {
   if (options.approach) body.approach = options.approach;
   if (options.context) body.context = options.context;
 
-  // New fields from feat/workspace-projects-browser:
   if (options.project) body.project = options.project;
   if (options.expert) body.expert_id = options.expert;
   if (options.language) body.language = options.language;
@@ -199,12 +230,12 @@ function buildSubmitBody(query, options) {
 
 async function submitResearch(query, options = {}) {
   const result = await api('POST', '/api/v1/research', buildSubmitBody(query, options));
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function checkStatus(jobId) {
   const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function getResult(jobId) {
@@ -215,7 +246,7 @@ async function getResult(jobId) {
     console.log(`Status: ${result.status}\n\n${report}`);
     console.log(`\n---\n[View full report on GREP](${jobUrl})`);
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
     console.log(`\n---\n[View full report on GREP](${jobUrl})`);
   }
 }
@@ -223,7 +254,7 @@ async function getResult(jobId) {
 async function listJobs(opts = {}) {
   const limit = opts.limit ? `?limit=${opts.limit}` : '';
   const result = await api('GET', `/api/v1/research${limit}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 function extractReport(result) {
@@ -291,7 +322,7 @@ async function runResearch(query, options = {}) {
         console.log(report);
         console.log(`\n---\n[View full report on GREP](${jobUrl})`);
       } else {
-        console.log(JSON.stringify(result, null, 2));
+        printResult(result);
         console.log(`\n---\n[View full report on GREP](${jobUrl})`);
       }
       return;
@@ -356,21 +387,21 @@ async function searchJobs(opts = {}) {
 async function attachInputs(jobId, files) {
   if (!jobId) throw new Error('job_id required');
   if (!files || !files.length) throw new Error('at least one file required');
-  const parts = files.map(p => {
-    const f = readFile(p);
-    return { name: 'files', filename: f.name, value: f.buffer, contentType: f.contentType };
-  });
-  const result = await apiMultipart('POST', `/grep/jobs/${encodeURIComponent(jobId)}/inputs`, parts);
-  console.log(JSON.stringify(result, null, 2));
+  const result = await apiMultipart(
+    'POST',
+    `/grep/jobs/${encodeURIComponent(jobId)}/inputs`,
+    buildFileParts(files),
+  );
+  printResult(result);
 }
 
 async function deleteInput(jobId, remotePath) {
   if (!jobId || !remotePath) throw new Error('job_id and remote_path required');
-  // remotePath may contain slashes (FastAPI :path catch-all on the backend);
-  // encode segments individually to preserve them.
-  const encoded = remotePath.split('/').map(encodeURIComponent).join('/');
-  const result = await api('DELETE', `/grep/jobs/${encodeURIComponent(jobId)}/inputs/${encoded}`);
-  console.log(JSON.stringify(result, null, 2));
+  const result = await api(
+    'DELETE',
+    `/grep/jobs/${encodeURIComponent(jobId)}/inputs/${encodeRemotePath(remotePath)}`,
+  );
+  printResult(result);
 }
 
 // =============================================================================
@@ -390,19 +421,18 @@ async function uploadDefaults(pairs) {
     parts.push({ name: 'paths', value: remotePath });
   }
   const result = await apiMultipart('POST', '/grep/user/defaults', parts);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function listDefaults() {
   const result = await api('GET', '/grep/user/defaults');
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function deleteDefault(remotePath) {
   if (!remotePath) throw new Error('remote_path required');
-  const encoded = remotePath.split('/').map(encodeURIComponent).join('/');
-  const result = await api('DELETE', `/grep/user/defaults/${encoded}`);
-  console.log(JSON.stringify(result, null, 2));
+  const result = await api('DELETE', `/grep/user/defaults/${encodeRemotePath(remotePath)}`);
+  printResult(result);
 }
 
 // =============================================================================
@@ -414,10 +444,10 @@ async function wsTree(subpath, opts = {}) {
   // If the user passes a path, prefer the flat /workspace?path= variant.
   if (subpath) {
     const result = await api('GET', `/grep/code-storage/workspace?path=${encodeURIComponent(subpath)}`);
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
   } else {
     const result = await api('GET', '/grep/code-storage/workspace/tree');
-    console.log(JSON.stringify(result, null, 2));
+    printResult(result);
   }
 }
 
@@ -440,7 +470,7 @@ async function wsRead(p) {
 async function wsHistory(opts = {}) {
   const limit = opts.limit ? `?limit=${opts.limit}` : '';
   const result = await api('GET', `/grep/code-storage/workspace/history${limit}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function wsDiff(fromSha, toSha) {
@@ -449,7 +479,7 @@ async function wsDiff(fromSha, toSha) {
   if (fromSha) params.set('from_sha', fromSha);
   params.set('to_sha', toSha);
   const result = await api('GET', `/grep/code-storage/workspace/diff?${params}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 // =============================================================================
@@ -459,27 +489,23 @@ async function wsDiff(fromSha, toSha) {
 async function projectUpload(projectName, files) {
   if (!projectName) throw new Error('project_name required');
   if (!files || !files.length) throw new Error('at least one file required');
-  const parts = [{ name: 'project_name', value: projectName }];
-  for (const p of files) {
-    const f = readFile(p);
-    parts.push({ name: 'files', filename: f.name, value: f.buffer, contentType: f.contentType });
-  }
+  const parts = [{ name: 'project_name', value: projectName }, ...buildFileParts(files)];
   const result = await apiMultipart('POST', '/grep/code-storage/workspace/projects/upload', parts);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function projectDelete(projectName, filePath) {
   if (!projectName || !filePath) throw new Error('project_name and file_path required');
   const params = new URLSearchParams({ project_name: projectName, file_path: filePath });
   const result = await api('DELETE', `/grep/code-storage/workspace/projects/file?${params}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function projectMkdir(projectName, dirPath) {
   if (!projectName || !dirPath) throw new Error('project_name and dir_path required');
   const params = new URLSearchParams({ project_name: projectName, dir_path: dirPath });
   const result = await api('POST', `/grep/code-storage/workspace/projects/mkdir?${params}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 // =============================================================================
@@ -489,7 +515,7 @@ async function projectMkdir(projectName, dirPath) {
 async function expertInit(expertName) {
   if (!expertName) throw new Error('expert_name required');
   const result = await api('POST', '/grep/code-storage/workspace/experts/init', { expert_name: expertName });
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function expertSave(expertName, configPath) {
@@ -498,28 +524,30 @@ async function expertSave(expertName, configPath) {
   const f = readFile(configPath);
   const text = f.buffer.toString('utf8');
   // Try JSON first; fall through to raw string (server may parse YAML).
+  // Surface JSON-parse failure so the user knows it's being sent unparsed.
   let config;
-  try { config = JSON.parse(text); } catch { config = text; }
+  try {
+    config = JSON.parse(text);
+  } catch (e) {
+    process.stderr.write(`[expert:save] config is not valid JSON (${e.message}); sending as raw string for server-side YAML parsing.\n`);
+    config = text;
+  }
   const result = await api('POST', '/grep/code-storage/workspace/experts/save', {
     expert_name: expertName,
     config,
   });
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function expertTrain(expertName, files) {
   if (!expertName) throw new Error('expert_name required');
   if (!files || !files.length) throw new Error('at least one document required');
-  const parts = files.map(p => {
-    const f = readFile(p);
-    return { name: 'files', filename: f.name, value: f.buffer, contentType: f.contentType };
-  });
   const result = await apiMultipart(
     'POST',
     `/grep/code-storage/workspace/experts/${encodeURIComponent(expertName)}/brain`,
-    parts,
+    buildFileParts(files),
   );
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 // =============================================================================
@@ -531,20 +559,20 @@ async function resumeJob(jobId, opts = {}) {
   const body = {};
   if (opts.message) body.steering_message = opts.message;
   const result = await api('POST', `/grep/research/${encodeURIComponent(jobId)}/resume`, body);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function stopCheck(checkResultId, opts = {}) {
   if (!checkResultId) throw new Error('check_result_id required');
   const action = opts.action === 'cancel' ? 'cancel' : 'pause';
   const result = await api('POST', '/grep/stopGrepCheck', { check_result_id: checkResultId, action });
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function deleteCheck(checkResultId) {
   if (!checkResultId) throw new Error('check_result_id required');
   const result = await api('DELETE', `/grep/check-result/${encodeURIComponent(checkResultId)}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 // =============================================================================
@@ -557,13 +585,13 @@ async function listApps(opts = {}) {
   if (opts.offset) params.set('offset', String(opts.offset));
   const qs = params.toString() ? `?${params}` : '';
   const result = await api('GET', `/api/v1/apps${qs}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 async function getApp(appId) {
   if (!appId) throw new Error('app_id required');
   const result = await api('GET', `/api/v1/apps/${encodeURIComponent(appId)}`);
-  console.log(JSON.stringify(result, null, 2));
+  printResult(result);
 }
 
 // =============================================================================
@@ -651,7 +679,6 @@ const handler = async () => {
       await listJobs({ limit: flags.limit });
       break;
 
-    // ---- new in v0.2 ----
     case 'search':
       await searchJobs({ status: flags.status, query: flags.query, limit: flags.limit, offset: flags.offset });
       break;
