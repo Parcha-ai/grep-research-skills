@@ -19,7 +19,7 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 node "$SCRIPTS_DIR/grep-api.js" project:upload <project_name> <file...>
 ```
 
-Examples:
+Each local file lands at `projects/<project_name>/<basename>` in Pierre. Examples:
 
 ```bash
 # Bootstrap a new project with its SOP
@@ -38,7 +38,11 @@ Returns `WorkspaceCommitResponse{ success, commit_sha, message, files }`. Print 
 node "$SCRIPTS_DIR/grep-api.js" project:mkdir <project_name> <dir_path>
 ```
 
-Used to organize a project (e.g. `project:mkdir acme-onboarding reference/`).
+`dir_path` is relative to `projects/<project_name>/`. Example:
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" project:mkdir acme-onboarding reference
+```
 
 ## Delete a file from a project
 
@@ -46,7 +50,11 @@ Used to organize a project (e.g. `project:mkdir acme-onboarding reference/`).
 node "$SCRIPTS_DIR/grep-api.js" project:delete <project_name> <file_path>
 ```
 
-`file_path` is relative to `projects/<project_name>/`.
+`file_path` is relative to `projects/<project_name>/`. Example:
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" project:delete acme-onboarding reference/policy.pdf
+```
 
 ## Submitting research against a project
 
@@ -64,7 +72,7 @@ The backend reads `SOP.md` and uses it as the agent's system prompt. Without `SO
 # 1. Author an SOP locally
 $EDITOR ./SOP.md
 
-# 2. Push it
+# 2. Push it (lands at projects/mcc-classification/SOP.md)
 node "$SCRIPTS_DIR/grep-api.js" project:upload mcc-classification ./SOP.md
 
 # 3. Run research that uses it

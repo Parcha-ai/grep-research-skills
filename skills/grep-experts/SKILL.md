@@ -5,7 +5,7 @@ description: Create and train custom GREP research experts. An "expert" is a nam
 
 # GREP Custom Experts
 
-Experts let you encode a research persona that can be reused across jobs. Each lives at `experts/{expert_name}/` in the workspace and can include a config.yml, prompt.md, and a "brain" (uploaded training documents that ground the expert's responses).
+Experts let you encode a research persona that can be reused across jobs. Each lives at `experts/{expert_name}/` in the workspace. The `init` step seeds a folder with template files (`SOP.md`, `form.json`, `schema.json`, `{name}.exe`); the `save` step overwrites a single file at a time; the `train` step ensures the expert has a brain session (idempotent — creates `brain.json` server-side if missing).
 
 ## Resolve the script path
 
@@ -13,46 +13,49 @@ Experts let you encode a research persona that can be reused across jobs. Each l
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 ```
 
-## Initialize an expert
+## Initialize an expert folder
 
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" expert:init <expert_name>
 ```
 
-Creates a template `config.yml` at `experts/<expert_name>/`. Example:
+Creates `experts/<expert_name>/` with template `SOP.md`, `form.json`, `schema.json`, and `{name}.exe`. Example:
 
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" expert:init medical-research-expert
 ```
 
-## Save an expert config
+## Save a single expert file
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" expert:save <expert_name> <config_file>
+node "$SCRIPTS_DIR/grep-api.js" expert:save <expert_name> <file_name> <local_file> [--message="..."]
 ```
 
-The config file can be JSON or YAML. Example:
+Overwrites one file under `experts/<expert_name>/`. Pull the template with `ws:cat`, edit locally, then save it back. Example:
 
 ```bash
-$EDITOR ./medical-config.yml   # tweak the template the init step seeded
-node "$SCRIPTS_DIR/grep-api.js" expert:save medical-research-expert ./medical-config.yml
+# Pull the seeded SOP, edit locally, save it back
+node "$SCRIPTS_DIR/grep-api.js" ws:cat experts/medical-research-expert/SOP.md > ./SOP.md
+$EDITOR ./SOP.md
+node "$SCRIPTS_DIR/grep-api.js" expert:save medical-research-expert SOP.md ./SOP.md \
+  --message="tighten clinical-trials methodology"
 ```
 
 Returns `WorkspaceCommitResponse` with the commit sha.
 
-## Train an expert (upload documents to its brain)
+## Ensure the expert's brain session
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" expert:train <expert_name> <document...>
+node "$SCRIPTS_DIR/grep-api.js" expert:train <expert_name>
 ```
 
-Each document is added to the expert's knowledge base. Example:
+Idempotent. The backend creates `experts/<expert_name>/brain.json` server-side if missing. Use this once after `expert:init` (or any time you want to confirm the brain session exists).
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" expert:train medical-research-expert \
-  ./pubmed-guides/clinical-trials-101.md \
-  ./pubmed-guides/mesh-terms-glossary.md
+node "$SCRIPTS_DIR/grep-api.js" expert:train medical-research-expert
 ```
+
+> **Note:** there is currently no document-upload endpoint for expert knowledge bases — `expert:train` only ensures the brain session metadata exists. To enrich an expert with reference materials, drop them into `experts/<expert_name>/` via `expert:save` (one file at a time) and reference them from the SOP.
 
 ## Submit research against an expert
 
@@ -65,21 +68,18 @@ The backend resolves the expert by name (or registry ID for built-in experts).
 ## Typical workflow
 
 ```bash
-# 1. Init template
+# 1. Init template files
 node "$SCRIPTS_DIR/grep-api.js" expert:init legal-contracts-expert
 
-# 2. Pull the template, customize locally
-node "$SCRIPTS_DIR/grep-api.js" ws:cat experts/legal-contracts-expert/config.yml > ./legal.yml
-$EDITOR ./legal.yml
+# 2. Ensure the brain session exists
+node "$SCRIPTS_DIR/grep-api.js" expert:train legal-contracts-expert
 
-# 3. Save edits back
-node "$SCRIPTS_DIR/grep-api.js" expert:save legal-contracts-expert ./legal.yml
+# 3. Pull SOP, customize locally, save back
+node "$SCRIPTS_DIR/grep-api.js" ws:cat experts/legal-contracts-expert/SOP.md > ./SOP.md
+$EDITOR ./SOP.md
+node "$SCRIPTS_DIR/grep-api.js" expert:save legal-contracts-expert SOP.md ./SOP.md
 
-# 4. Train with reference materials
-node "$SCRIPTS_DIR/grep-api.js" expert:train legal-contracts-expert \
-  ./contract-templates/*.md ./case-law-summaries/*.pdf
-
-# 5. Use it
+# 4. Use it
 node "$SCRIPTS_DIR/grep-api.js" run "Review this NDA for unusual clauses" \
   --expert=legal-contracts-expert --context-file=./nda-draft.md
 ```

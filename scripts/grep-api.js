@@ -214,7 +214,7 @@ function buildSubmitBody(query, options) {
 
   if (options.project) body.project = options.project;
   if (options.expert) body.expert_id = options.expert;
-  if (options.language) body.language = options.language;
+  if (options.language) body.response_language = options.language;
   if (options.fromDate) body.from_date = options.fromDate;
   if (options.toDate) body.to_date = options.toDate;
   if (options.additionalThesis) body.additional_thesis = options.additionalThesis;
@@ -439,7 +439,7 @@ async function deleteDefault(remotePath) {
 // Workspace browsing: /grep/code-storage/workspace[/...]
 // =============================================================================
 
-async function wsTree(subpath, opts = {}) {
+async function wsTree(subpath) {
   // Default to the grouped tree (sections: projects/jobs/experts/apps).
   // If the user passes a path, prefer the flat /workspace?path= variant.
   if (subpath) {
@@ -455,7 +455,7 @@ async function wsRead(p) {
   if (!p) throw new Error('path required');
   // Returns raw bytes — but for skill-friendly output, fetch + print the body.
   const token = await getValidToken();
-  const res = await fetch(`${GREP_API_BASE}/grep/code-storage/workspace/file?path=${encodeURIComponent(p)}`, {
+  const res = await fetch(`${GREP_API_BASE}/grep/code-storage/workspace/file?path=${encodeURIComponent(p)}&raw=true`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -486,25 +486,43 @@ async function wsDiff(fromSha, toSha) {
 // Workspace projects: upload/delete/mkdir
 // =============================================================================
 
-async function projectUpload(projectName, files) {
+// projectUpload uploads files to projects/{projectName}/<relative_path>. The
+// backend accepts parallel multipart arrays: files[i] and paths[i]. The path
+// is the full repo-relative path under projects/, so we prepend the project
+// name when the caller passes bare filenames.
+async function projectUpload(projectName, files, opts = {}) {
   if (!projectName) throw new Error('project_name required');
   if (!files || !files.length) throw new Error('at least one file required');
-  const parts = [{ name: 'project_name', value: projectName }, ...buildFileParts(files)];
+
+  const fileParts = buildFileParts(files);
+  const pathsParts = fileParts.map((fp, i) => {
+    const localPath = files[i];
+    const baseName = localPath.split('/').pop();
+    return { name: 'paths', value: `${projectName}/${baseName}` };
+  });
+  const parts = [...fileParts, ...pathsParts];
+  if (opts.message) parts.push({ name: 'commit_message', value: opts.message });
+
   const result = await apiMultipart('POST', '/grep/code-storage/workspace/projects/upload', parts);
   printResult(result);
 }
 
+// projectDelete deletes a single file from projects/. The backend expects a
+// single `path` query parameter: the full path under projects/ (e.g.
+// `acme/SOP.md`). We accept (projectName, fileName) for ergonomics and join.
 async function projectDelete(projectName, filePath) {
   if (!projectName || !filePath) throw new Error('project_name and file_path required');
-  const params = new URLSearchParams({ project_name: projectName, file_path: filePath });
-  const result = await api('DELETE', `/grep/code-storage/workspace/projects/file?${params}`);
+  const fullPath = `${projectName}/${filePath}`;
+  const result = await api('DELETE', `/grep/code-storage/workspace/projects/file?path=${encodeRemotePath(fullPath)}`);
   printResult(result);
 }
 
+// projectMkdir creates a directory under projects/. Backend uses JSON body
+// {path} with the full path under projects/.
 async function projectMkdir(projectName, dirPath) {
   if (!projectName || !dirPath) throw new Error('project_name and dir_path required');
-  const params = new URLSearchParams({ project_name: projectName, dir_path: dirPath });
-  const result = await api('POST', `/grep/code-storage/workspace/projects/mkdir?${params}`);
+  const fullPath = `${projectName}/${dirPath}`;
+  const result = await api('POST', '/grep/code-storage/workspace/projects/mkdir', { path: fullPath });
   printResult(result);
 }
 
@@ -514,38 +532,36 @@ async function projectMkdir(projectName, dirPath) {
 
 async function expertInit(expertName) {
   if (!expertName) throw new Error('expert_name required');
-  const result = await api('POST', '/grep/code-storage/workspace/experts/init', { expert_name: expertName });
+  const result = await api('POST', '/grep/code-storage/workspace/experts/init', { folder_name: expertName });
   printResult(result);
 }
 
-async function expertSave(expertName, configPath) {
+// expertSave writes a single file (SOP.md, form.json, schema.json, etc.) under
+// experts/{folder}/{file_name}. The backend expects raw file content as a UTF-8
+// string — it does not parse YAML or JSON.
+async function expertSave(expertName, fileName, contentPath, opts = {}) {
   if (!expertName) throw new Error('expert_name required');
-  if (!configPath) throw new Error('config file path required');
-  const f = readFile(configPath);
-  const text = f.buffer.toString('utf8');
-  // Try JSON first; fall through to raw string (server may parse YAML).
-  // Surface JSON-parse failure so the user knows it's being sent unparsed.
-  let config;
-  try {
-    config = JSON.parse(text);
-  } catch (e) {
-    process.stderr.write(`[expert:save] config is not valid JSON (${e.message}); sending as raw string for server-side YAML parsing.\n`);
-    config = text;
-  }
-  const result = await api('POST', '/grep/code-storage/workspace/experts/save', {
-    expert_name: expertName,
-    config,
-  });
+  if (!fileName) throw new Error('file_name required (e.g. SOP.md, form.json)');
+  if (!contentPath) throw new Error('local content file path required');
+  const f = readFile(contentPath);
+  const content = f.buffer.toString('utf8');
+  const body = {
+    folder_path: expertName,
+    file_name: fileName,
+    content,
+  };
+  if (opts.message) body.commit_message = opts.message;
+  const result = await api('POST', '/grep/code-storage/workspace/experts/save', body);
   printResult(result);
 }
 
-async function expertTrain(expertName, files) {
+// expertTrain ensures the expert has a brain session — the backend creates
+// brain.json server-side if missing. Idempotent; takes no body.
+async function expertTrain(expertName) {
   if (!expertName) throw new Error('expert_name required');
-  if (!files || !files.length) throw new Error('at least one document required');
-  const result = await apiMultipart(
+  const result = await api(
     'POST',
     `/grep/code-storage/workspace/experts/${encodeURIComponent(expertName)}/brain`,
-    buildFileParts(files),
   );
   printResult(result);
 }
@@ -742,12 +758,12 @@ const handler = async () => {
       await expertInit(args[0]);
       break;
     case 'expert:save':
-      if (args.length < 2) fail('Usage: grep-api.js expert:save <expert_name> <config_file.json|yaml>');
-      await expertSave(args[0], args[1]);
+      if (args.length < 3) fail('Usage: grep-api.js expert:save <expert_name> <file_name> <local_file> [--message="..."]');
+      await expertSave(args[0], args[1], args[2], { message: flags.message });
       break;
     case 'expert:train':
-      if (args.length < 2) fail('Usage: grep-api.js expert:train <expert_name> <document...>');
-      await expertTrain(args[0], args.slice(1));
+      if (!args[0]) fail('Usage: grep-api.js expert:train <expert_name>');
+      await expertTrain(args[0]);
       break;
 
     case 'resume':
@@ -804,9 +820,9 @@ const handler = async () => {
       console.error('  project:mkdir <name> <dir_path>                Create a directory in a project');
       console.error('');
       console.error('Custom experts:');
-      console.error('  expert:init <name>                             Initialize an expert config template');
-      console.error('  expert:save <name> <config.json|yaml>          Save expert config');
-      console.error('  expert:train <name> <document...>              Upload training documents');
+      console.error('  expert:init <name>                             Initialize expert folder (SOP.md, form.json, schema.json)');
+      console.error('  expert:save <name> <file_name> <local_file>    Save a single expert file (e.g. SOP.md)');
+      console.error('  expert:train <name>                            Ensure expert brain session (idempotent)');
       console.error('');
       console.error('Lifecycle controls:');
       console.error('  resume <job_id> [--message="..."]              Resume a paused job (optional steering)');
@@ -830,6 +846,7 @@ const handler = async () => {
       console.error('  --custom-skills=skill1,skill2                  Custom skill names');
       console.error('  --custom-mcp-tools=tool1,tool2                 Custom MCP tool names');
       console.error('  --skip-clarification                           Bypass clarification questions');
+      console.error('  --action-mode                                  Implement instead of report (admin/special)');
       console.error('  --output-type=report|data_explorer             Output shape');
       process.exit(1);
   }
