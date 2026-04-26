@@ -18,7 +18,7 @@ const HOME = process.env.HOME || process.env.USERPROFILE;
 const INSTALL_DIR = path.join(HOME, '.grep-research-skills');
 const GREP_DIR = path.join(HOME, '.grep');
 const SESSION_FILE = path.join(GREP_DIR, 'session.json');
-const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://preview.grep.ai';
+const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://grep.ai';
 
 // Where we're copying FROM (the npm package or local repo)
 const PKG_ROOT = path.resolve(__dirname, '..');

@@ -47,7 +47,7 @@ Use **AskUserQuestion** to let the user pick:
 Direct the user to the web to create their account first:
 
 ```bash
-open "https://preview.grep.ai/start"
+open "https://grep.ai/start"
 ```
 
 On Linux use `xdg-open`, on WSL use `wslview`.
@@ -221,7 +221,7 @@ This returns JSON with a `has_completed_onboarding` field (true/false).
 The user hasn't finished onboarding on the web yet. Open the onboarding page for them:
 
 ```bash
-open "https://preview.grep.ai/start"
+open "https://grep.ai/start"
 ```
 
 On Linux use `xdg-open`, on WSL use `wslview`.

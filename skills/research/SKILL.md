@@ -118,7 +118,7 @@ Based on the context you've gathered and any clarification answers, **refine the
 
 Example:
 - Raw: "Descope CLI auth bridging"
-- Refined: "How to bridge Descope web browser authentication with a CLI terminal session. Specifically: does Descope support OAuth device flow (RFC 8628), enchanted links for cross-device auth, or session token transfer? We currently use Descope OTP (project ID P38Xct9AhA95T0MU5T8g7o9V9886) with raw fetch to api.descope.com. Need REST API endpoints, not SDK-only solutions."
+- Refined: "How to bridge Descope web browser authentication with a CLI terminal session. Specifically: does Descope support OAuth device flow (RFC 8628), enchanted links for cross-device auth, or session token transfer? We currently use Descope OTP (project ID P35S8vZ7BYoDSOJVaYbIDRZObJq6) with raw fetch to api.descope.com. Need REST API endpoints, not SDK-only solutions."
 
 The refined query should include:
 - The specific question (not just a topic)

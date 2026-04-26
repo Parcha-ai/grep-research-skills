@@ -48,8 +48,8 @@ node scripts/grep-api.js jobs                                 # List recent jobs
 ## Environment
 
 - **Runtime**: Node.js 18+ (no npm dependencies — uses native `fetch`)
-- **API base**: `https://preview-api.grep.ai` (overridable via `GREP_API_BASE` env var)
-- **Auth provider**: Descope (project ID `P38Xct9AhA95T0MU5T8g7o9V9886`)
+- **API base**: `https://api.grep.ai` (overridable via `GREP_API_BASE` env var)
+- **Auth provider**: Descope (project ID `P35S8vZ7BYoDSOJVaYbIDRZObJq6`)
 - **Session storage**: `~/.grep/session.json` (mode 0600)
 - **Plugin manifest**: `.claude-plugin/plugin.json`
 

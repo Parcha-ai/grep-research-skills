@@ -21,10 +21,10 @@ const readline = require('readline');
 
 const { execSync } = require('child_process');
 
-const DESCOPE_PROJECT_ID = 'P38Xct9AhA95T0MU5T8g7o9V9886';
+const DESCOPE_PROJECT_ID = 'P35S8vZ7BYoDSOJVaYbIDRZObJq6';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
-const GREP_API_BASE = process.env.GREP_API_BASE || 'https://preview-api.grep.ai';
-const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://preview.grep.ai';
+const GREP_API_BASE = process.env.GREP_API_BASE || 'https://api.grep.ai';
+const GREP_BASE_URL = process.env.GREP_BASE_URL || 'https://grep.ai';
 // Enchanted link verify page — requires /auth/verify route on the frontend.
 // Currently experimental; OTP flow is the default.
 const ENCHANTED_LINK_VERIFY_URL = process.env.ENCHANTED_LINK_VERIFY_URL || `${GREP_BASE_URL}/auth/verify`;

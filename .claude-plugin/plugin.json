@@ -1,6 +1,6 @@
 {
   "name": "grep-research-skills",
-  "description": "Deep research superpowers for your AI agent. Three research tiers powered by GREP — the #1 deep research engine.",
+  "description": "Deep research superpowers for your AI agent. Three research tiers (quick ~25s, deep ~5min, ultra up to 1hr) powered by GREP — the #1 deep research engine.",
   "version": "0.1.0",
   "author": {
     "name": "Parcha Labs",
@@ -8,5 +8,13 @@
   },
   "homepage": "https://grep.ai",
   "repository": "https://github.com/parcha-ai/grep-research-skills",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "deep-research",
+    "grep",
+    "ai-agent",
+    "investigation",
+    "knowledge"
+  ]
 }

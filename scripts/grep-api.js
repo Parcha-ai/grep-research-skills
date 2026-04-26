@@ -13,9 +13,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const GREP_API_BASE = process.env.GREP_API_BASE || 'https://preview-api.grep.ai';
+const GREP_API_BASE = process.env.GREP_API_BASE || 'https://api.grep.ai';
 const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.grep', 'session.json');
-const DESCOPE_PROJECT_ID = 'P38Xct9AhA95T0MU5T8g7o9V9886';
+const DESCOPE_PROJECT_ID = 'P35S8vZ7BYoDSOJVaYbIDRZObJq6';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
 
 // Load session from disk
