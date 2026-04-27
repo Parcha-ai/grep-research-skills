@@ -92,7 +92,7 @@ Compose a targeted research question based on the user's answers. The research s
 
 **Research question template:**
 
-> "Comprehensive implementation guide for [TOPIC]. I'm building an AI agent skill (instruction file) that will guide an LLM to perform this task step-by-step via bash commands and API calls. I need: (1) exact API endpoints, authentication methods, and request/response formats, (2) CLI commands with flags and expected output, (3) common error codes and how to handle them, (4) best practices and gotchas, (5) any rate limits or usage constraints. Focus on non-interactive, scriptable approaches — the agent cannot do interactive terminal prompts."
+> "Comprehensive implementation guide for [TOPIC]. I'm building an AI agent skill (a markdown instruction file) that will guide an LLM to perform this task step-by-step via bash commands and API calls. I need: (1) exact API endpoints, authentication methods, and request/response formats, (2) CLI commands with flags and expected output, (3) common error codes and how to handle them, (4) best practices and gotchas that a practitioner would know, (5) any rate limits or usage constraints, (6) what's out of scope or commonly confused with this task (so I can define clear boundaries). Focus on non-interactive, scriptable approaches — the agent cannot do interactive terminal prompts."
 
 Adapt the template based on the skill type:
 - For API integrations: emphasize auth, endpoints, webhooks, error codes
@@ -115,32 +115,121 @@ rm -f "$CONTEXT_FILE"
 
 ## Step 5: Generate the SKILL.md
 
-Using the research findings AND the example skill patterns, write a complete SKILL.md file. Follow these conventions observed from existing skills:
+Using the research findings AND the example skill patterns, write a complete SKILL.md file.
 
-### Frontmatter
+**Every generated skill MUST follow the 6 quality patterns below.** These are reverse-engineered from the best-performing skills and are non-negotiable.
+
+### Pattern 1: Description tells Claude WHEN, not just WHAT
+
+The description is the single most important field. Claude scans descriptions of all available skills before deciding which to load. A description that only says what the skill does will rarely get invoked.
+
+**Bad:** `description: Deployment tool`
+
+**Good:** `description: Deploy the application to production. Use when the user says "deploy", "ship it", "push to prod", or after finishing a feature. Handles build, push, and health check steps.`
+
+Rules for descriptions:
+- Include at least 3 trigger keywords/phrases that a user would say
+- Front-load the use case in the first 250 characters (that's Claude's context budget for skill selection)
+- State both what the skill does AND when to use it
+- Descriptions under 50 characters get invoked 3-5x less often — aim for 100-250 characters
+
+### Pattern 2: Be directive, not conversational
+
+Skills are instructions, not chat. Use imperative verbs and numbered steps.
+
+**Weak:** `Could you please check the deployment status? Maybe verify the health endpoint?`
+
+**Strong:**
+```
+Check deployment status:
+1. Run `kubectl get pods` to verify all pods are running
+2. Hit the /health endpoint and confirm 200 response
+3. Output status as a checklist with pass/fail for each check
+```
+
+### Pattern 3: Specify the output format explicitly
+
+Tell Claude exactly what the output should look like. Without this, output varies every run and the skill feels unreliable.
+
+```
+Output format:
+## [Skill Name] Results
+
+**Status:** [pass/fail]
+
+| Check | Result | Details |
+|-------|--------|---------|
+| ...   | ...    | ...     |
+```
+
+### Pattern 4: Include a "read first" step
+
+The best skills don't assume Claude knows the project. They tell Claude to look at the codebase first, then act.
+
+Before generating or modifying anything:
+1. Read the target files to understand existing patterns
+2. Find existing examples in the project (tests, configs, similar code)
+3. Identify the framework/tooling in use
+4. Match the import style, naming conventions, and patterns already present
+
+### Pattern 5: Define what the skill does NOT do
+
+Explicitly list what's out of scope. This prevents Claude from trying and failing — it either picks a different skill or asks for clarification.
+
+```
+## Out of Scope
+
+This skill does NOT:
+- Handle X (use /other-skill instead)
+- Process Y
+- Modify Z
+```
+
+70% of high-quality skills include an out-of-scope section. Almost no low-quality skills do.
+
+### Pattern 6: Keep it under 500 lines
+
+Every skill loads into Claude's context when invoked. A 2000-line skill eats 5000+ tokens before doing anything, and Claude loses focus on instructions at the bottom.
+
+- Target: under 300 lines for the main SKILL.md
+- Hard cap: 500 lines
+- If it's getting long, split into supporting files that get loaded on demand:
+
+```
+SKILL.md (under 200 lines, always loaded)
+├── ADVANCED_PATTERNS.md (loaded only when needed)
+├── REFERENCE.md (loaded only when referenced)
+└── EXAMPLES.md (loaded only when Claude needs examples)
+```
+
+### Structural conventions
+
+Follow these conventions observed from existing skills:
+
+**Frontmatter:**
 ```yaml
 ---
 name: <skill-name>
-description: <one-line description of when to use this skill>
+description: <description following Pattern 1 above — 100-250 chars with trigger keywords>
 ---
 ```
 
 Set `disable-model-invocation: true` only if the skill is purely mechanical (no judgement needed — rare).
 
-### Structure
+**Body structure:**
 1. **Title and overview** — what the skill does in 1-2 sentences
-2. **Script path resolution** — use the standard symlink-safe pattern:
+2. **Script path resolution** — use the standard symlink-safe pattern if the skill calls scripts from this repo:
    ```bash
    SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
    ```
-   Only include this if the skill calls scripts from this repo. If it's a standalone skill using external tools, skip it.
 3. **Steps** — numbered steps with clear bash code blocks. Each step should:
-   - Explain what it does and why
+   - Explain what it does and why (directive, not conversational)
    - Include the exact bash command
-   - Describe the expected output
+   - Describe the expected output format
    - Handle errors (what to do if it fails)
 4. **User interaction** — use AskUserQuestion for any input needed mid-flow
-5. **Anti-patterns** — list common mistakes to avoid
+5. **Out of scope** — what this skill does NOT do (Pattern 5)
+6. **Anti-patterns** — common mistakes to avoid
 
 ### Key principles from research
 - Use non-interactive commands (no stdin prompts)
@@ -166,5 +255,10 @@ If the user picks a save location, write the file there.
 - Do NOT skip the clarification questions — a vague brief produces a vague skill
 - Do NOT generate a skill without researching first — the whole point is research-informed accuracy
 - Do NOT invent API endpoints or CLI flags from memory — use what the research returns
-- Do NOT create overly long skills — keep each step focused and actionable
+- Do NOT create overly long skills — target under 300 lines, hard cap at 500
 - Do NOT forget the script path resolution block if the skill uses scripts from this repo
+- Do NOT write a description under 50 characters — short descriptions get invoked 3-5x less
+- Do NOT use conversational tone in the skill body — use imperative verbs and numbered steps
+- Do NOT omit the output format — unspecified format means inconsistent results every run
+- Do NOT skip the "Out of Scope" section — it prevents Claude from trying and failing
+- Do NOT skip the "read first" step — skills that don't inspect the project produce generic, broken output
