@@ -1,6 +1,6 @@
 ---
 name: grep-login
-description: Authenticate with GREP deep research. Use when the user needs to log in to GREP, authenticate, set up GREP credentials, or when a GREP API call returns 401 unauthorized. Supports direct arguments for agent use — `/grep-login <email>` to login with OTP, `/grep-login --api-key <key>` to authenticate with an API key.
+description: Authenticate with GREP deep research. Use when the user needs to log in to GREP, authenticate, set up GREP credentials, or when a GREP API call returns 401 unauthorized. Supports direct arguments for agent use — /grep-login EMAIL to login with OTP, /grep-login --api-key KEY to authenticate with an API key.
 disable-model-invocation: true
 ---
 
