@@ -35,36 +35,34 @@ The skill dir is usually symlinked, so always resolve:
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 ```
 
-## Run it (preferred: Monitor for live streaming)
+## Run it — use Monitor (background), NOT blocking Bash
 
-If the Monitor tool is available, use it to stream live status updates:
+**IMPORTANT: Always run research as a background Monitor task, never as a blocking Bash call.** Even though quick-research only takes ~25 seconds, Monitor keeps the agent responsive and streams live updates.
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60 2>&1
 ```
 
-Use Monitor with `timeout_ms: 80000` and `persistent: false`. With `2>&1`, status updates and the final report both stream as events.
+Run this with **Monitor** (`timeout_ms: 80000`, `persistent: false`). With `2>&1`, status updates and the final report both stream as events.
 
 ## CRITICAL: Always deliver results
 
-Whether the command runs via Monitor, blocking Bash, or gets backgrounded by the user — when the task/background notification arrives saying it completed, you MUST:
+When the Monitor notification arrives saying the task completed, you MUST:
 
 1. Read the output file from the task notification
 2. Extract and present the research report to the user
 3. Never silently drop a completed research job
 
-## Run it (fallback: blocking Bash)
+## Fallback: blocking Bash (only if Monitor is unavailable)
 
-If Monitor is not available:
+Only use blocking Bash if the Monitor tool is genuinely not available:
 
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60
 ```
 
-**IMPORTANT:** Invoke this bash command with a tool `timeout` of at least `80000` (80 seconds) to give Node headroom over the 60s server-side wait.
-
-The command prints heartbeats and live status messages to stderr while polling. Share these updates with the user as they arrive. The final report prints to stdout when complete.
+Set the Bash tool `timeout` to at least `80000` (80 seconds).
 
 ## Presenting results
 

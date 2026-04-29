@@ -113,7 +113,7 @@ Adapt the template to the specific topic. For example:
 node "${SCRIPTS_DIR}/grep-api.js" run "<research_question>" --depth=deep --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
 ```
 
-Use Monitor with `timeout_ms: 560000` if available, otherwise fall back to blocking Bash with `timeout: 560000`.
+**Always use Monitor** (`timeout_ms: 560000`, `persistent: false`) — do NOT run as a blocking Bash call. Research takes ~5 minutes; blocking Bash ties up the agent and risks timeout. Only fall back to blocking Bash if Monitor is genuinely unavailable.
 
 Tell the user before starting: "Researching [topic] with your codebase as context. This typically takes around 5 minutes."
 

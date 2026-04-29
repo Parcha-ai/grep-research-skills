@@ -151,27 +151,27 @@ If the result shows `"authenticated": false`, **automatically invoke `/grep-logi
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 ```
 
-## Run it (preferred: Monitor for live streaming)
+## Run it — use Monitor (background), NOT blocking Bash
 
-If the Monitor tool is available, use it to stream live status updates to the user while the research runs. This is the preferred approach — the user sees what the agent is thinking, searching, and reading in real time instead of staring at silence for 5 minutes.
+**IMPORTANT: Always run research as a background Monitor task, never as a blocking Bash call.** Research takes ~5 minutes. A blocking Bash call ties up the agent, prevents interaction, and risks timeout. Monitor runs in the background, streams live updates, and lets the agent continue working.
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
 node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
 ```
 
+Run this with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The command writes live status updates to stderr and the final report to stdout. With `2>&1` both streams merge so Monitor captures everything.
+
 **Clean up after the research completes:**
 ```bash
 rm -f "$CONTEXT_FILE"
 ```
 
-Use Monitor with `timeout_ms: 560000` and `persistent: false`. The command writes live status updates (thinking, searching, tool use) to stderr and the final report to stdout. With `2>&1` both streams are merged so Monitor captures everything.
-
-When the Monitor completes, the final report will be in the output. Read the output file with the Read tool and present the results to the user immediately.
+Tell the user: "Research submitted — I'll stream updates as they come in. This takes about 5 minutes."
 
 ## CRITICAL: Always deliver results
 
-Whether the command runs via Monitor, blocking Bash, or gets backgrounded by the user — when the task/background notification arrives saying it completed, you MUST:
+When the Monitor notification arrives saying the task completed, you MUST:
 
 1. Read the output file from the task notification
 2. Extract and present the research report to the user
@@ -179,9 +179,9 @@ Whether the command runs via Monitor, blocking Bash, or gets backgrounded by the
 
 The user invoked `/research` because they need an answer. A research job that completes without presenting results is a failed mission.
 
-## Run it (fallback: blocking Bash)
+## Fallback: blocking Bash (only if Monitor is unavailable)
 
-If Monitor is not available, fall back to blocking Bash:
+Only use blocking Bash if the Monitor tool is genuinely not available in the current environment:
 
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE"
@@ -189,11 +189,9 @@ node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-f
 
 Clean up after: `rm -f "$CONTEXT_FILE"`
 
-**IMPORTANT:** Invoke this bash command with a tool `timeout` of exactly `560000` (560 seconds / ~9.3 min). That's the maximum headroom you can give — Claude Code's bash tool caps at 10 minutes (600000). The `--max-wait=540` leaves 20s of slack for Node to print results and exit cleanly before bash would kill it.
+Set the Bash tool `timeout` to `560000` (560 seconds). The `--max-wait=540` leaves 20s of slack for Node to print results before bash kills it.
 
-If research takes longer than 9 minutes (uncommon but possible for complex queries), the command exits with code 2 and returns a `job_id`. See "If the job times out" below.
-
-The command prints heartbeats and live status messages to stderr while polling (what the research agent is thinking, searching, reading). Share these updates with the user as they arrive so they can follow the research in real time. The final report prints to stdout when complete.
+If the job times out (exit code 2), it returns a `job_id`. See "If the job times out" below.
 
 ## Presenting results
 

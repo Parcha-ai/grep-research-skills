@@ -105,7 +105,9 @@ Run the research:
 node "${SCRIPTS_DIR}/grep-api.js" run "<research_question>" --depth=deep --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
 ```
 
-Use Monitor with `timeout_ms: 560000` if available. Tell the user: "Researching [topic] to build an accurate skill. This takes about 5 minutes."
+**Always use Monitor** (`timeout_ms: 560000`, `persistent: false`) — do NOT run as a blocking Bash call. Research takes ~5 minutes; blocking Bash ties up the agent and risks timeout. Only fall back to blocking Bash if Monitor is genuinely unavailable.
+
+Tell the user: "Researching [topic] to build an accurate skill. This takes about 5 minutes."
 
 ## Step 4: Clean up context file
 
