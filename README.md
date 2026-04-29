@@ -12,10 +12,26 @@ That's it. Works with Claude Code, Cowork, and OpenClaw — the installer auto-d
 
 **Requirements:** Node.js 18+
 
+### Alternative: Cowork
+
+1. Download the latest zip from [Releases](https://github.com/parcha-ai/grep-research-skills/releases/latest)
+2. In Cowork, go to **Settings → Plugins** and click **Add Plugin**
+3. Upload `grep-research-skills-v0.1.0.zip`
+4. The skills will appear in your org — all team members get access
+
+**Required: Allow network access.** In your Cowork org settings under **Code execution → Allow network egress**, add these domains to the allowlist:
+
+```
+api.grep.ai
+api.descope.com
+```
+
+Without this, the sandbox can't reach the GREP API or authenticate via Descope.
+
 ### Alternative: Claude Code Plugin Marketplace
 
 ```
-/plugin marketplace add parcha-ai/grep-research-skills
+/install-plugin parcha-ai/grep-research-skills
 ```
 
 ### Alternative: Git Clone
