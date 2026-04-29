@@ -125,9 +125,25 @@ The refined query should include:
 - What form of answer is most useful (endpoints, code patterns, comparisons, etc.)
 - Any constraints (language, framework, existing patterns to match)
 
+## Auto-update check
+
+On first use per session, silently check for updates (throttled to once per hour):
+
+```bash
+node "$SCRIPTS_DIR/update-check.js" 2>/dev/null &
+```
+
+Run this in the background — it must never delay the research. If an update is found it installs silently.
+
 ## Prerequisites
 
-The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
+The user must be authenticated. Before running any API call, check auth status:
+
+```bash
+node "$SCRIPTS_DIR/auth.js" status
+```
+
+If the result shows `"authenticated": false`, **automatically invoke `/grep-login`** — don't just tell the user to do it. Run the login flow, then continue with the research once authenticated.
 
 ## Resolve the script path
 

@@ -98,6 +98,13 @@ function main() {
     fs.copyFileSync(pluginSrc, path.join(pluginDir, 'plugin.json'));
   }
 
+  // Write installed version for update-check.js
+  try {
+    const pluginJson = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+    fs.mkdirSync(GREP_DIR, { recursive: true });
+    fs.writeFileSync(path.join(GREP_DIR, 'installed-version'), pluginJson.version);
+  } catch {}
+
   ok('Copied skills and scripts to ~/.grep-research-skills/');
 
   // 3. Ensure ~/.grep directory for session storage

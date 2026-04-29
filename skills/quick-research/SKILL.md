@@ -19,7 +19,13 @@ Fastest GREP tier. ~25 seconds end-to-end. Single command, single blocking call,
 
 ## Prerequisites
 
-The user must be authenticated. If the command errors with "Not authenticated", tell them to run `/grep-login` first.
+The user must be authenticated. Before running any API call, check auth status:
+
+```bash
+node "$SCRIPTS_DIR/auth.js" status
+```
+
+If the result shows `"authenticated": false`, **automatically invoke `/grep-login`** — don't just tell the user to do it. Run the login flow, then continue with the research once authenticated.
 
 ## Resolve the script path
 

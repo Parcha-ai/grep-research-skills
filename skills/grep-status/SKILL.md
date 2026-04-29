@@ -35,6 +35,5 @@ node "$SCRIPTS_DIR/grep-api.js" jobs
 
 ## Present Status Clearly
 
-- If not authenticated: suggest running `/grep-login`
-- If session expired: suggest re-authenticating with `/grep-login`
+- If not authenticated or session expired: **automatically invoke `/grep-login`** — don't just suggest it. Run the login flow, then continue with the status check once authenticated.
 - If checking a job: report status and results if completed
