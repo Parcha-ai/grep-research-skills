@@ -187,17 +187,40 @@ Returns JSON: `{ "on_waitlist": true/false }`.
 
 **If `on_waitlist` is `true`:**
 
-Tell the user clearly what's happening and what they can do:
+Use **AskUserQuestion** to offer the coupon/invite code option:
 
-> "You're on the GREP waitlist. Here's what that means:
+- Header: "Waitlist"
+- Question: "You're on the GREP waitlist. Do you have an invite or promo code to skip the line?"
+- Options:
+  - "I have a code" — "Enter a promo code or invite code to get immediate access"
+  - "I'll wait" — "We'll email you when your account is activated (usually a few days)"
+
+### If "I have a code":
+
+Ask for the code via **AskUserQuestion**:
+- Header: "Code"
+- Question: "Enter your promo or invite code"
+
+Then redeem it:
+
+```bash
+node "${SCRIPTS_DIR}/billing.js" redeem "<code>"
+```
+
+Output:
+- Success with access: `{"ok": true, "access_granted": true, ...}` — tell the user "Code accepted! You're off the waitlist." and continue to Step 6 (onboarding check).
+- Success without access: `{"ok": true, "access_granted": false, ...}` — the code is valid (e.g., a discount) but doesn't bypass the waitlist. Tell the user the code has been applied and they'll be emailed when off the waitlist.
+- Failure: `{"ok": false, "error": "..."}` — tell the user the code is invalid and offer to try again or wait.
+
+### If "I'll wait":
+
+Tell the user:
+
+> "No problem. Here's what to expect:
 >
-> - We'll email you at `<email>` as soon as your account is activated
+> - We'll email you as soon as your account is activated
 > - This usually takes a few days — we're onboarding in waves
-> - You can't run `/research` or `/grep-upgrade` until you're off the waitlist
->
-> **What you can do now:**
-> - Run `/grep-status` anytime to check if you're off the waitlist
-> - If you have an invite code or know someone at GREP, they can fast-track you
+> - Run `/grep-status` anytime to check your waitlist status
 > - Keep an eye on your inbox (and spam folder) for the activation email"
 
 Stop here. Do NOT proceed to onboarding or billing checks.

@@ -158,6 +158,44 @@ async function onboarding() {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function redeemCode(code) {
+  if (!code) {
+    console.error('Usage: billing.js redeem <code>');
+    process.exit(1);
+  }
+
+  // Try promo code first, then referral code
+  try {
+    const result = await api('POST', '/billing/promo-codes/validate', { code });
+    if (result.valid) {
+      console.log(JSON.stringify({
+        ok: true,
+        type: 'promo',
+        access_granted: result.access_granted || false,
+        message: result.message,
+        promo_code_info: result.promo_code_info,
+      }));
+      return;
+    }
+  } catch (e) {
+    // Promo endpoint may 404 if disabled — fall through to referral
+  }
+
+  // Try as referral/invite code
+  try {
+    const result = await api('POST', `/quota/referrals/${encodeURIComponent(code)}/claim`);
+    console.log(JSON.stringify({
+      ok: result.success,
+      type: 'referral',
+      access_granted: result.access_granted || false,
+      message: result.message,
+    }));
+  } catch (e) {
+    console.log(JSON.stringify({ ok: false, error: e.message }));
+    process.exit(1);
+  }
+}
+
 async function paygActivate(amountCents) {
   if (!amountCents || isNaN(amountCents)) {
     console.error('Usage: billing.js payg <amount_cents>');
@@ -199,6 +237,9 @@ switch (command) {
   case 'checkout':
     checkout(args[0], args[1]).catch(e => { console.error(e.message); process.exit(1); });
     break;
+  case 'redeem':
+    redeemCode(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
   case 'payg':
     paygActivate(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
@@ -211,6 +252,7 @@ switch (command) {
     console.error('  node billing.js waitlist                      Check waitlist status');
     console.error('  node billing.js onboarding                   Check onboarding status');
     console.error('  node billing.js checkout <tier> [month|year]  Create Stripe checkout');
+    console.error('  node billing.js redeem <code>                 Redeem a promo or invite code');
     console.error('  node billing.js payg <amount_cents>           Activate PAYG wallet');
     process.exit(1);
 }
