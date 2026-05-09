@@ -123,7 +123,7 @@ Instead, run the same two steps `/ultra-research` runs, but with `--expert-id` o
 # 1. Submit non-blocking with the expert-id flag
 SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research "<refined>" \
   --expert-id=<chosen-id> --effort=high \
-  [--output-type=<podcast|video|news_broadcast>])
+  [--output-type=<podcast|video|news_broadcast|slidedeck|spreadsheet|html_app>])
 SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
 [ -z "$SLUG" ] && { echo "Submit failed: $SUBMIT"; exit 1; }
 
