@@ -1,7 +1,6 @@
 ---
 name: grep-mcp
 description: Attach a Grep MCP server to .mcp.json so Claude has 5 native research tools (research_create, research_get, research_files_list, research_file_read, wallet_balance) without writing curl. Use when the user wants Grep available as MCP tools, says "install Grep MCP", "set up Grep MCP server", or wants to research via MCP instead of HTTP. Reads the existing .mcp.json (or creates one), merges the grep entry, and verifies the server responds to tools/list.
-allowed-tools: Bash, Read, Write
 ---
 
 # Grep MCP Server Setup
@@ -104,13 +103,14 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
 
 ## Step 4: Verify the server responds
 
-`curl` the chosen MCP endpoint with a `tools/list` JSON-RPC call to confirm auth works:
+`curl` the chosen MCP endpoint with a `tools/list` JSON-RPC call. Parse the response with Node (consistent with Step 3's "don't assume jq is installed" note):
 
 ```bash
 curl -s "$MCP_URL" \
   -H "Authorization: $AUTH_HEADER" \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq -e '.result.tools | length >= 5'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+  node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const t=JSON.parse(d).result?.tools??[];console.log(t.length>=5?'ok ('+t.length+' tools)':'only '+t.length+' tools — verification failed');process.exit(t.length>=5?0:1)}catch(e){console.error('parse error:',e.message);process.exit(1)}})"
 ```
 
 Expected response: a JSON-RPC envelope listing 5 tools — `research_create`, `research_get`, `research_files_list`, `research_file_read`, `wallet_balance`.
@@ -135,7 +135,7 @@ MCP servers are loaded at Claude Code startup. After editing `.mcp.json`:
 | `research_get` | `GET /research/{id_or_slug}` | Poll a job's status + retrieve the report when complete |
 | `research_files_list` | `GET /research/{id_or_slug}/files` | List artifacts in a completed job's workspace (slides.html, index.html, report.md, etc.) |
 | `research_file_read` | `GET /research/{id_or_slug}/files/{path}` | Read one artifact |
-| `wallet_balance` | `GET /mpp/v1/api/wallet/{addr}` | (gateway only) Check `bonus_credits_cents` before submitting another paid call |
+| `wallet_balance` | `GET /mpp/v1/api/wallet/{addr}` (gateway only) | Check `bonus_credits_cents` before another paid call. The MCP server resolves `{addr}` from the receipt server-side — the agent doesn't need to know its own wallet address; just call `wallet_balance` with no args. |
 
 These compose with the other Grep skills naturally: an agent can use the MCP tools to keep state across turns and only fall back to the bash-shelled `scripts/grep-api.js` for things the MCP surface doesn't expose (e.g. `cancel`, `continue`, attachment uploads — those land in subsequent MCP tool releases).
 
