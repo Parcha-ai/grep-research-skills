@@ -53,6 +53,7 @@ The user can refer to the parent in three forms — extract the `id_or_slug` fro
 PARENT="${1:-}"
 PARENT="${PARENT##*/research/}"  # strip URL prefix if present
 PARENT="${PARENT%%\?*}"            # strip query string
+PARENT="${PARENT%%\#*}"            # strip URL fragment (e.g. #third-finding)
 ```
 
 If the user didn't provide a slug/UUID, look at recent conversation. If still ambiguous, ask:
@@ -64,7 +65,8 @@ If the user didn't provide a slug/UUID, look at recent conversation. If still am
 ## Step 2: Verify the parent exists and is `complete`
 
 ```bash
-STATUS=$(node "$SCRIPTS_DIR/grep-api.js" status "$PARENT" | jq -r '.status')
+STATUS=$(node "$SCRIPTS_DIR/grep-api.js" status "$PARENT" \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.status||'')}")
 case "$STATUS" in
   completed|complete)
     : # OK
@@ -109,24 +111,45 @@ If the follow-up is asking for an **artifact** (deck, spreadsheet, app), pass `-
 
 ## Step 5: Submit
 
+`continue` POSTs to `/research/{id_or_slug}/continue` with `{question, effort?, context?}`. The response shape is the same as a fresh `POST /research` — returns `{job_id, slug, status}` for the new continuation job. The submit command differs by effort tier — pick the matching block:
+
+**Low / medium effort (synchronous via Monitor):**
+
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "<refined follow-up>" \
   --effort=<low|medium> 2>&1
 ```
 
-For an artifact follow-up:
+Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). 20s slack between `--max-wait=540` and `timeout_ms` so Node can flush the report.
+
+**Build effort / artifact follow-up (synchronous, longer):**
 
 ```bash
-# Continue with a different deliverable from the same research
 node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "Build me a slidedeck from these findings" \
   --output-type=slidedeck 2>&1
 ```
 
-Run with **Monitor** matching the effort tier:
-- `low` / `medium` → `timeout_ms: 560000`
-- `build` → `timeout_ms: 1800000`
+Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Build jobs take 10-15 min.
 
-`continue` POSTs to `/research/{id_or_slug}/continue` with `{question, effort?, context?}`. The response shape is the same as a fresh `POST /research` — returns `{job_id, slug, status}` for the new continuation job.
+**High effort (async — cannot block-wait):**
+
+`effort=high` runs up to 1 hour, exceeding the bash 10-min cap and any reasonable Monitor budget. Use the `/ultra-research` polling pattern: submit non-blocking, then schedule a `/loop` cron that polls every 5 min and presents results when complete.
+
+```bash
+# Non-blocking submit — returns {job_id, slug, status} JSON
+SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "<refined follow-up>" --effort=high)
+NEW_SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$NEW_SLUG" ] && { echo "Continue submit failed: $SUBMIT"; exit 1; }
+```
+
+Then schedule the same `/loop` cron that `/ultra-research` uses (5-min interval, polls `result <NEW_SLUG>`, presents on completion, calls `CronDelete` to stop).
+
+| Effort | Monitor `timeout_ms` | Pattern |
+|---|---|---|
+| `low` | 560000 (~9 min) | synchronous via Monitor |
+| `medium` | 560000 (~9 min) | synchronous via Monitor |
+| `build` (with `--output-type=`) | 1800000 (30 min) | synchronous via Monitor |
+| `high` | n/a | async via `/loop` cron, same as `/ultra-research` |
 
 ## Step 6: Tell the user
 
