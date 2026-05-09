@@ -94,6 +94,8 @@ function main() {
   const resourcesSrc = path.join(PKG_ROOT, 'resources');
   if (fs.existsSync(resourcesSrc)) {
     copyDirSync(resourcesSrc, path.join(INSTALL_DIR, 'resources'));
+  } else {
+    warn('resources/ directory not found in package — domain expert and build skills may not work correctly');
   }
 
   // Copy plugin manifest
