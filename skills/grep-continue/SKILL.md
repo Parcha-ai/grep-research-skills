@@ -109,34 +109,44 @@ Default by user signal:
 
 If the follow-up is asking for an **artifact** (deck, spreadsheet, app), pass `--output-type=...` instead of just `--effort=`. The sugar pins effort=build automatically.
 
-## Step 5: Submit
+## Step 5: Submit + poll
 
-`continue` POSTs to `/research/{id_or_slug}/continue` with `{question, effort?, context?}`. The response shape is the same as a fresh `POST /research` — returns `{job_id, slug, status}` for the new continuation job. The submit command differs by effort tier — pick the matching block:
+`continue` POSTs to `/research/{id_or_slug}/continue` with `{question, effort?, context?}` and returns immediately with `{job_id, slug, status: "queued"}` — **it does NOT poll**. Treat it as a non-blocking submit, capture the new slug, then call `result <slug>` (which polls until complete) under Monitor.
+
+The submit command differs by effort tier; the polling step is the same shape for all of them. Pick the matching block:
 
 **Low / medium effort (synchronous via Monitor):**
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "<refined follow-up>" \
-  --effort=<low|medium> 2>&1
+SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "<refined follow-up>" \
+  --effort=<low|medium>)
+NEW_SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$NEW_SLUG" ] && { echo "Continue submit failed: $SUBMIT"; exit 1; }
+
+# `result` polls until complete and prints the report
+node "$SCRIPTS_DIR/grep-api.js" result "$NEW_SLUG" 2>&1
 ```
 
-Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). 20s slack between `--max-wait=540` and `timeout_ms` so Node can flush the report.
+Run the `result` call with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The 20s slack lets Node flush the report.
 
 **Build effort / artifact follow-up (synchronous, longer):**
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "Build me a slidedeck from these findings" \
-  --output-type=slidedeck 2>&1
+SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "Build me a slidedeck from these findings" \
+  --output-type=slidedeck)
+NEW_SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$NEW_SLUG" ] && { echo "Continue submit failed: $SUBMIT"; exit 1; }
+
+node "$SCRIPTS_DIR/grep-api.js" result "$NEW_SLUG" 2>&1
 ```
 
-Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Build jobs take 10-15 min.
+Run the `result` call with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Build jobs take 10-15 min.
 
 **High effort (async — cannot block-wait):**
 
-`effort=high` runs up to 1 hour, exceeding the bash 10-min cap and any reasonable Monitor budget. Use the `/ultra-research` polling pattern: submit non-blocking, then schedule a `/loop` cron that polls every 5 min and presents results when complete.
+`effort=high` runs up to 1 hour, exceeding the bash 10-min cap and any reasonable Monitor budget. Submit non-blocking, then schedule a `/loop` cron that polls every 5 min:
 
 ```bash
-# Non-blocking submit — returns {job_id, slug, status} JSON
 SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" continue "$PARENT" "<refined follow-up>" --effort=high)
 NEW_SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
 [ -z "$NEW_SLUG" ] && { echo "Continue submit failed: $SUBMIT"; exit 1; }
@@ -144,12 +154,12 @@ NEW_SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).o
 
 Then schedule the same `/loop` cron that `/ultra-research` uses (5-min interval, polls `result <NEW_SLUG>`, presents on completion, calls `CronDelete` to stop).
 
-| Effort | Monitor `timeout_ms` | Pattern |
+| Effort | Polling pattern | Monitor `timeout_ms` |
 |---|---|---|
-| `low` | 560000 (~9 min) | synchronous via Monitor |
-| `medium` | 560000 (~9 min) | synchronous via Monitor |
-| `build` (with `--output-type=`) | 1800000 (30 min) | synchronous via Monitor |
-| `high` | n/a | async via `/loop` cron, same as `/ultra-research` |
+| `low` | submit + `result <slug>` (synchronous) | 560000 (~9 min) |
+| `medium` | submit + `result <slug>` (synchronous) | 560000 (~9 min) |
+| `build` (with `--output-type=`) | submit + `result <slug>` (synchronous) | 1800000 (30 min) |
+| `high` | submit + `/loop` cron (async, like `/ultra-research`) | n/a |
 
 ## Step 6: Tell the user
 
