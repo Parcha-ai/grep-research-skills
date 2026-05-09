@@ -3,7 +3,7 @@
   "name": "grep-research-skills",
   "version": "0.2.0",
   "homepage": "https://github.com/parcha-ai/grep-research-skills",
-  "install": "git clone https://github.com/parcha-ai/grep-research-skills ~/.claude/skills/grep",
+  "install": "git clone https://github.com/parcha-ai/grep-research-skills ~/.grep-research-skills && ~/.grep-research-skills/setup",
   "skills": [
     { "name": "grep-login", "path": "skills/grep-login/SKILL.md" },
     { "name": "grep-status", "path": "skills/grep-status/SKILL.md" },

@@ -52,7 +52,13 @@ jobs:
           # full /api/v2/experts response (display name, domain, sample
           # question, output_types). For now we open a tracking PR with the
           # ID-level diff so a human can regenerate the table.
-          BRANCH="sync-experts-$(date -u +%Y%m%d)"
+          # Branch name includes GITHUB_RUN_ID so a same-day re-run (e.g. manual
+          # workflow_dispatch while the scheduled run's drift PR is still open)
+          # doesn't collide on `git push`.
+          BRANCH="sync-experts-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+          # GITHUB_RUN_URL isn't a real GitHub Actions env var. Compose it from
+          # the standard ones (GITHUB_SERVER_URL / GITHUB_REPOSITORY / GITHUB_RUN_ID).
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           git config user.name "claudio-michel[bot]"
           git config user.email "1592301+claudio-michel[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
@@ -61,7 +67,7 @@ jobs:
           {
             echo ""
             echo "<!-- DRIFT DETECTED $(date -u +%Y-%m-%dT%H:%M:%SZ) -->"
-            echo "<!-- See workflow run: $GITHUB_RUN_URL -->"
+            echo "<!-- See workflow run: $RUN_URL -->"
           } >> resources/experts.md
           git add resources/experts.md
           git commit -m "chore: drift detected vs live /api/v2/experts (auto)"
