@@ -97,7 +97,7 @@ Default by user signal:
 - (no signal) → `--effort=medium` (~5min, $2.00 PAYG)
 - "deep" / "thorough" / "comprehensive" / "investigation" → `--effort=high` (up to 1hr, $10.00 PAYG)
 
-Note that `effort=high` runs up to an hour and **cannot be block-waited via `run`** — for high effort, use `/ultra-research` instead (it submits + polls across turns via `/loop`).
+Note that `effort=high` runs up to an hour and **cannot be block-waited via `run`** — use the async pattern in the subsection below ("`effort=high` requires the async pattern"). **Do NOT delegate to `/ultra-research`** for high-effort domain-expert routing — that skill quotes the entire argument string into the query, so `--expert-id=...` would be silently swallowed.
 
 ## Step 5: Submit — use Monitor (background), NOT blocking Bash
 
@@ -146,7 +146,7 @@ When the Monitor notification arrives:
 
 - Do NOT pick an expert if the user's question is genuinely general — fall through to `/research` and let v2 auto-select. Forcing `general-expert` when `/research` would do is wasted UX.
 - Do NOT pass an expert ID that's not in the catalog — the API will 422. Always check the table.
-- Do NOT pass `--effort=high` to `run` (the blocking command). High effort can take an hour and will hit the bash 10-min cap. Use `/ultra-research` for high effort.
+- Do NOT pass `--effort=high` to `run` (the blocking command). High effort can take an hour and will hit the bash 10-min cap. Use the async submit + `/loop` pattern in Step 5's "`effort=high` requires the async pattern" subsection — NOT `/ultra-research` delegation, which silently drops `--expert-id`.
 - Do NOT skip the refine-query step. Passing `$ARGUMENTS` raw is the difference between a generic answer and an actionable one.
 - Do NOT silently fall back to `general-expert` when matching is ambiguous — ask the user.
 - Do NOT try to read `experts.md` from CWD or a hardcoded path. Always resolve via `$RESOURCES_DIR` because the skill is symlinked.
