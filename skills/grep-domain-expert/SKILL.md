@@ -102,8 +102,12 @@ Note that `effort=high` runs up to an hour and **cannot be block-waited via `run
 ## Step 5: Submit — use Monitor (background), NOT blocking Bash
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --expert-id=<chosen-id> --effort=<low|medium> --max-wait=540 2>&1
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" \
+  --expert-id=<chosen-id> --effort=<low|medium> --max-wait=540 \
+  [--output-type=<podcast|video|news_broadcast|slidedeck|spreadsheet|html_app>] 2>&1
 ```
+
+`--output-type=` is **required when routing to `media-producer`** (the expert needs to know whether to produce a podcast, video, or news broadcast) and **also valid when routing to `app-builder`** (slidedeck / spreadsheet / html_app). For all other experts, omit the flag — they default to a written report.
 
 Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). With `2>&1`, status updates and the final report stream as events.
 
@@ -113,13 +117,15 @@ Tell the user: "Routing to the **<Display Name>** expert. This takes about <time
 
 `effort=high` jobs run up to an hour and must use the same submit-then-poll pattern `/ultra-research` uses. **Do not invoke `/ultra-research` with `$ARGUMENTS` containing `--expert-id=...`** — that skill quotes the entire argument string into the query and the flag is silently swallowed.
 
-Instead, run the same two steps `/ultra-research` runs, but with `--expert-id` on the `research` call:
+Instead, run the same two steps `/ultra-research` runs, but with `--expert-id` on the `research` call. Slug extraction uses Node (no `jq` dependency, matching the rest of the repo):
 
 ```bash
 # 1. Submit non-blocking with the expert-id flag
 SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research "<refined>" \
-  --expert-id=<chosen-id> --effort=high)
-SLUG=$(echo "$SUBMIT" | jq -r '.slug // .job_id // .id')
+  --expert-id=<chosen-id> --effort=high \
+  [--output-type=<podcast|video|news_broadcast>])
+SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$SLUG" ] && { echo "Submit failed: $SUBMIT"; exit 1; }
 
 # 2. Schedule a /loop cron (5-minute interval) that polls and self-terminates
 #    on completion — mirrors the /ultra-research pattern verbatim.
