@@ -1,0 +1,74 @@
+name: Sync experts.md drift
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # 06:17 UTC daily — drift-check the experts catalog
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch live experts from /api/v2/experts
+        run: |
+          set -euo pipefail
+          curl -fsS https://api.grep.ai/api/v2/experts | jq -r '.[].id' | sort > /tmp/live.txt
+          echo "Live experts ($(wc -l < /tmp/live.txt)):"
+          cat /tmp/live.txt
+
+      - name: Extract documented experts from resources/experts.md
+        run: |
+          set -euo pipefail
+          grep -oP '^\| `\K[a-z0-9-]+(?=`)' resources/experts.md | sort -u > /tmp/local.txt
+          echo "Documented experts ($(wc -l < /tmp/local.txt)):"
+          cat /tmp/local.txt
+
+      - name: Diff
+        id: diff
+        run: |
+          set -euo pipefail
+          if diff -u /tmp/local.txt /tmp/live.txt > /tmp/drift.diff; then
+            echo "in_sync=true" >> "$GITHUB_OUTPUT"
+            echo "✓ resources/experts.md is in sync with the live /api/v2/experts catalog"
+          else
+            echo "in_sync=false" >> "$GITHUB_OUTPUT"
+            echo "⚠ Drift detected:"
+            cat /tmp/drift.diff
+          fi
+
+      - name: Open drift PR
+        if: steps.diff.outputs.in_sync == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The maintainer's agent fills in the regeneration logic for the
+          # full /api/v2/experts response (display name, domain, sample
+          # question, output_types). For now we open a tracking PR with the
+          # ID-level diff so a human can regenerate the table.
+          BRANCH="sync-experts-$(date -u +%Y%m%d)"
+          git config user.name "claudio-michel[bot]"
+          git config user.email "1592301+claudio-michel[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          # Touch the file so the PR has a diff (replace this with real
+          # regeneration once we have a script that emits the table).
+          {
+            echo ""
+            echo "<!-- DRIFT DETECTED $(date -u +%Y-%m-%dT%H:%M:%SZ) -->"
+            echo "<!-- See workflow run: $GITHUB_RUN_URL -->"
+          } >> resources/experts.md
+          git add resources/experts.md
+          git commit -m "chore: drift detected vs live /api/v2/experts (auto)"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "Sync experts.md drift ($(date -u +%Y-%m-%d))" \
+            --body-file /tmp/drift.diff \
+            --label "chore" \
+            --base main \
+            --head "$BRANCH"
