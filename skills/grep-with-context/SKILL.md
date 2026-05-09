@@ -68,20 +68,25 @@ If the user named a file but didn't give a path, ask:
 
 ## Step 3: Populate the FILES array, then upload each file
 
-First, populate the `FILES` bash array from the file paths Step 1 identified. Two common patterns:
+First, populate the `FILES` bash array from the file paths Step 1 identified. Three common patterns — pick whichever matches how the agent gathered the file list:
 
 ```bash
-# Option A — single file from $ARGUMENTS (e.g. user invoked `/grep-with-context /path/to/report.pdf "summarise"`)
+# Option A — single file from $ARGUMENTS (e.g. `/grep-with-context /path/to/report.pdf "summarise"`)
 FILES=("$1")
+ARG_QUESTION="${*:2}"   # everything after the file path is the question
 
-# Option B — multiple files passed as positional args before the question
-FILES=("$@")  # then capture the question separately, e.g. ARG_QUESTION="${@: -1}"
+# Option B — N file paths followed by a single quoted question
+# (e.g. `/grep-with-context /a.pdf /b.csv "compare these documents"`)
+# CRITICAL: pop the last arg into ARG_QUESTION FIRST, then capture remaining as FILES.
+ARG_QUESTION="${!#}"           # last positional arg = the question
+FILES=("${@:1:$#-1}")          # everything before the last arg = file paths
 
 # Option C — paths the agent collected from conversation context
 FILES=("/home/user/report.pdf" "/home/user/data.csv")
+ARG_QUESTION="<the user's question, captured separately by the agent>"
 ```
 
-Pick whichever matches how the agent gathered the file list in Step 1. Verify each path exists before uploading:
+Verify each path exists before uploading, and that there's at least one file:
 
 ```bash
 for FILE in "${FILES[@]}"; do
@@ -134,7 +139,25 @@ Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The 20s slack 
 Pick effort by the user's signal:
 - "quick summary" → `low`
 - (no signal) → `medium`
-- "thorough", "fact-check every claim", "comprehensive" → `high` — use `/ultra-research`'s polling pattern (submit non-blocking with `research`, then `/loop` cron). Don't block-wait `effort=high` via `run` — it can take up to 1 hour.
+- "thorough", "fact-check every claim", "comprehensive" → `high` — use the async pattern below
+
+### `effort=high` requires the async pattern, not `/ultra-research` delegation
+
+`effort=high` jobs run up to an hour and can't be block-waited. **Don't invoke `/ultra-research` with `$ARGUMENTS`** — that skill double-quotes the entire argument string into the query, so `--attachment-ids=...` would be passed as literal text and the already-paid-for uploads would be ignored. Instead, run the same two steps `/ultra-research` runs, but with `--attachment-ids` (and any `--output-type`) on the `research` call:
+
+```bash
+# 1. Submit non-blocking with attachment-ids + (optional) output-type
+SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research "<refined>" \
+  --attachment-ids="$ATTACHMENT_IDS" --effort=high \
+  [--output-type=<slidedeck|spreadsheet|html_app>])
+SLUG=$(echo "$SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$SLUG" ] && { echo "Submit failed: $SUBMIT"; exit 1; }
+
+# 2. Schedule the same /loop cron /ultra-research uses (5-minute interval, polls
+#    `result <slug>`, presents on completion, calls CronDelete to stop).
+```
+
+Pass the captured `$SLUG` into the `/loop` cron prompt `/ultra-research` uses (see `skills/ultra-research/SKILL.md` Step 3). The polling, presentation, and CronDelete-on-complete logic are identical — only the submit command differs (it carries `--attachment-ids` here).
 
 ## Step 6: Tell the user
 
