@@ -2,41 +2,59 @@
 
 Used by the `grep-research-workflow` skill. Each example shows how to chain Grep jobs via `--reference-jobs=` so each step builds on the prior step's findings without re-running the investigation.
 
+**Critical: each step must complete before the next is submitted.** `--reference-jobs` is resolved at submission time — if Step 1 hasn't produced findings yet, Step 2 inherits an empty context. Use `result <slug>` (which polls until complete) between submissions, not back-to-back `research` calls.
+
+The slug-extraction one-liners below use Node (no `jq` dependency, matching the rest of the repo).
+
 ## Workflow 1 — Investigate then deck
 
 User says: "Investigate Anthropic and then make me a slidedeck."
 
 ```bash
+# Helper: extract slug from `research` JSON output without jq
+extract_slug() {
+  node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}"
+}
+
 # Step 1: orient (~30-90s, $0.40 PAYG)
 JOB1=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Orientation pass on Anthropic — funding, products, leadership, recent news" \
-  --effort=low | jq -r '.job_id // .id')
+  --effort=low | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB1" >/dev/null  # block until complete
 
 # Step 2: deep dive on the most interesting angle from Step 1 (~5-10min, $10 PAYG)
+# effort=high → use the /loop pattern, or drop to effort=medium for synchronous
 JOB2=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Deep dive on Anthropic's enterprise / API revenue strategy and competitive moat" \
-  --effort=high --reference-jobs=$JOB1 | jq -r '.job_id // .id')
+  --effort=medium --reference-jobs="$JOB1" | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB2" >/dev/null
 
 # Step 3: materialise as slidedeck (~10-15min, $2 PAYG)
 JOB3=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Investor-grade slidedeck on Anthropic's enterprise strategy" \
-  --output-type=slidedeck --reference-jobs=$JOB2 | jq -r '.job_id // .id')
+  --output-type=slidedeck --reference-jobs="$JOB2" | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB3"
 ```
 
-Each step's `--reference-jobs=$PRIOR_JOB` makes that step inherit the prior job's research context — the slidedeck doesn't re-investigate Anthropic, it builds the deck from Step 2's findings.
+Each step's `--reference-jobs=$PRIOR_JOB` makes that step inherit the prior job's research context. The `result <slug>` between submissions is the synchronisation point — without it, Step 2 might start before Step 1 has produced any findings.
 
 ## Workflow 2 — Compare then build
 
 User says: "Compare top 5 LLM providers and build me an interactive dashboard."
 
 ```bash
+extract_slug() { node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}"; }
+
+# effort=high → drop to medium for synchronous, or use /loop pattern for full high
 JOB1=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Compare top 5 LLM providers on cost, context, features, latency" \
-  --effort=high | jq -r '.job_id // .id')
+  --effort=medium | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB1" >/dev/null
 
 JOB2=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Interactive dashboard from this comparison" \
-  --output-type=html_app --reference-jobs=$JOB1 | jq -r '.job_id // .id')
+  --output-type=html_app --reference-jobs="$JOB1" | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB2"
 ```
 
 ## Workflow 3 — Domain-route then summarise
@@ -44,16 +62,25 @@ JOB2=$(node "$SCRIPTS_DIR/grep-api.js" research \
 User says: "Patent landscape for transformers, then a one-page exec summary."
 
 ```bash
+extract_slug() { node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}"; }
+
+# Step 1: effort=high — use the /loop pattern (this snippet shows synchronous medium for brevity)
 JOB1=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "Patent landscape for transformer architecture variations" \
-  --expert-id=patent-research-ip-expert --effort=high | jq -r '.job_id // .id')
+  --expert-id=patent-research-ip-expert --effort=medium | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB1" >/dev/null
 
 JOB2=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "One-page exec summary of the patent landscape" \
-  --effort=low --reference-jobs=$JOB1 | jq -r '.job_id // .id')
+  --effort=low --reference-jobs="$JOB1" | extract_slug)
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB2"
 ```
 
 The exec summary doesn't re-research the landscape — it inherits Step 1's findings and produces a condensed write-up.
+
+### When you need `effort=high`
+
+`effort=high` jobs run up to 1 hour and cannot be block-waited via `result` (the bash tool caps at 10 minutes). For high-effort steps, submit non-blocking and schedule a `/loop` cron that polls every 5 minutes and runs the next step on completion — same pattern `/ultra-research` uses. The synchronous `result` calls above only work for `effort=low|medium|build`.
 
 ## Anti-patterns
 

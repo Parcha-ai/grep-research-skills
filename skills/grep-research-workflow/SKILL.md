@@ -76,47 +76,77 @@ Example question:
 
 Skip this step only if the user's request is unambiguous AND they explicitly said "just go".
 
-## Step 3: Submit Step 1 (orient)
+## Step 3: Submit Step 1 (orient) and capture the slug
+
+The blocking `run` command prints the rendered report on stdout when it completes — it does NOT print the slug at the end. To capture the slug for downstream `--reference-jobs=`, **submit non-blocking** with `research`, parse the slug, then block on the result with `result`:
 
 ```bash
-JOB1_OUT=$(node "$SCRIPTS_DIR/grep-api.js" run \
-  "<orientation question>" \
-  --effort=low --max-wait=120 2>&1)
+# Submit non-blocking — returns {job_id, slug, status} JSON
+JOB1_SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research \
+  "<orientation question>" --effort=low)
+
+# Extract slug with a Node one-liner (no jq dependency)
+JOB1_SLUG=$(echo "$JOB1_SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$JOB1_SLUG" ] && { echo "Step 1 submit failed: $JOB1_SUBMIT"; exit 1; }
+
+# Block on completion via Monitor — `result` polls until done and prints the report
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB1_SLUG" 2>&1
 ```
 
-Use **Monitor** (`timeout_ms: 150000`, `persistent: false`). When it completes, capture the `slug` from the result. The submit response includes `job_id` and `slug` — the slug is preferred for downstream `--reference-jobs=` (more readable in logs, accepted by the API).
+Use **Monitor** for the `result` call (`timeout_ms: 150000` for `effort=low`, `560000` for `medium`).
 
 Tell the user briefly: "Step 1/3 (orientation) done. Moving to deep dive."
 
-## Step 4: Submit Step 2 (deep dive) with `--reference-jobs=<step1_slug>`
+## Step 4: Submit Step 2 (deep dive) with `--reference-jobs=$JOB1_SLUG`
+
+`--effort=high` runs up to 1 hour and **cannot be block-waited via `run`** — the bash 10-min cap or even the script's 540s default will time out. Pick by user's time budget:
+
+**Option A — synchronous (effort=medium, ~5 min):**
 
 ```bash
-JOB2_OUT=$(node "$SCRIPTS_DIR/grep-api.js" run \
+JOB2_SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "<deep-dive question, refined based on Step 1's findings>" \
-  --effort=high --reference-jobs=$JOB1_SLUG --max-wait=540 2>&1)
+  --effort=medium --reference-jobs="$JOB1_SLUG")
+JOB2_SLUG=$(echo "$JOB2_SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$JOB2_SLUG" ] && { echo "Step 2 submit failed: $JOB2_SUBMIT"; exit 1; }
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB2_SLUG" 2>&1
 ```
 
-`--effort=high` runs up to 1 hour and **cannot be block-waited** via `run` — the bash 10-min cap or even the script's 540s default will time out. Two options:
+Run the `result` call with **Monitor** (`timeout_ms: 560000`).
 
-- **Use `/ultra-research`'s polling pattern** for Step 2 — submit non-blocking with `research`, then `/loop` cron every 5 min until complete. Workflow becomes async.
-- **Cap Step 2 at `--effort=medium`** (5 min, $2 PAYG) if the user is OK with less depth. This keeps the workflow synchronous and cheaper.
+**Option B — async high-effort (effort=high, up to 1 hour):**
 
-Pick based on the user's time budget. If they said "comprehensive" / "thorough" / "exhaustive" → use the `/loop` pattern with `--effort=high`. Otherwise → `--effort=medium` and stay synchronous.
+Same as `/ultra-research`'s polling pattern. Submit non-blocking, then schedule a `/loop` cron that polls every 5 min until complete:
+
+```bash
+JOB2_SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research \
+  "<deep-dive question>" \
+  --effort=high --reference-jobs="$JOB1_SLUG")
+JOB2_SLUG=$(echo "$JOB2_SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$JOB2_SLUG" ] && { echo "Step 2 submit failed: $JOB2_SUBMIT"; exit 1; }
+```
+
+Then schedule the `/loop` cron with the same prompt `/ultra-research` uses. When the loop fires and sees completion, it runs Step 5 itself (passing `$JOB2_SLUG` as `--reference-jobs`).
+
+Pick by user signal: "comprehensive" / "thorough" / "exhaustive" → Option B. Otherwise → Option A.
 
 Tell the user: "Step 2/3 (deep dive) running. This takes <5 min / up to 1 hour>."
 
-## Step 5: Submit Step 3 (build artifact) with `--reference-jobs=<step2_slug>`
+## Step 5: Submit Step 3 (build artifact) with `--reference-jobs=$JOB2_SLUG`
 
 If the user opted into a build step:
 
 ```bash
-JOB3_OUT=$(node "$SCRIPTS_DIR/grep-api.js" run \
+JOB3_SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research \
   "<artifact request, referencing Step 2's findings>" \
   --output-type=<slidedeck|spreadsheet|html_app> \
-  --reference-jobs=$JOB2_SLUG --max-wait=1800 2>&1)
+  --reference-jobs="$JOB2_SLUG")
+JOB3_SLUG=$(echo "$JOB3_SUBMIT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.slug||j.job_id||j.id||'')}")
+[ -z "$JOB3_SLUG" ] && { echo "Step 3 submit failed: $JOB3_SUBMIT"; exit 1; }
+node "$SCRIPTS_DIR/grep-api.js" result "$JOB3_SLUG" 2>&1
 ```
 
-Use **Monitor** (`timeout_ms: 1800000`).
+Run the `result` call with **Monitor** (`timeout_ms: 1800000`). Build jobs take 10-15 min.
 
 Tell the user: "Step 3/3 (building <artifact>) running. ~10-15 min."
 
