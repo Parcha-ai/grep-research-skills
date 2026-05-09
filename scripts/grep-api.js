@@ -218,10 +218,14 @@ async function getResult(jobIdOrSlug, options = {}) {
     return;
   }
 
-  // Polling path — wait for the job to reach a terminal status
+  // Polling path — wait for the job to reach a terminal status.
+  // Hoist `slug` to function scope so the timeout branch below has access to
+  // the server-returned pretty slug (rather than falling back to a raw UUID
+  // when the caller resumed via job_id).
   const startedAt = Date.now();
   let attempt = 0;
   let seenMessageCount = 0;
+  let slug = jobIdOrSlug;
   if (initialWaitMs) await sleep(initialWaitMs);
 
   while ((Date.now() - startedAt) / 1000 < maxWaitSeconds) {
@@ -229,7 +233,7 @@ async function getResult(jobIdOrSlug, options = {}) {
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
     const status = result.status;
-    const slug = result.slug || jobIdOrSlug;
+    slug = result.slug || slug;
 
     // Print new status messages since the last poll
     const messages = result.status_messages || [];
@@ -271,9 +275,10 @@ async function getResult(jobIdOrSlug, options = {}) {
     await sleep(pollIntervalMs);
   }
 
-  // Timeout — print what we have and exit 2 so callers can resume
+  // Timeout — print what we have and exit 2 so callers can resume.
+  // `slug` was last set inside the loop to the server-returned pretty slug;
+  // the timeout branch reuses that instead of redeclaring it.
   process.stderr.write(`[result] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
-  const slug = jobIdOrSlug;
   const jobUrl = `https://grep.ai/research/${slug}`;
   console.log(JSON.stringify({
     status: 'timeout',
