@@ -109,7 +109,23 @@ Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). With `2>&1`, s
 
 Tell the user: "Routing to the **<Display Name>** expert. This takes about <time>."
 
-For `--effort=high`, use `/ultra-research` with the `--expert-id` flag explicitly added to the `research` subcommand — same pattern, but the polling loop runs across turns instead of blocking.
+### `effort=high` requires the async pattern, not `/ultra-research` delegation
+
+`effort=high` jobs run up to an hour and must use the same submit-then-poll pattern `/ultra-research` uses. **Do not invoke `/ultra-research` with `$ARGUMENTS` containing `--expert-id=...`** — that skill quotes the entire argument string into the query and the flag is silently swallowed.
+
+Instead, run the same two steps `/ultra-research` runs, but with `--expert-id` on the `research` call:
+
+```bash
+# 1. Submit non-blocking with the expert-id flag
+SUBMIT=$(node "$SCRIPTS_DIR/grep-api.js" research "<refined>" \
+  --expert-id=<chosen-id> --effort=high)
+SLUG=$(echo "$SUBMIT" | jq -r '.slug // .job_id // .id')
+
+# 2. Schedule a /loop cron (5-minute interval) that polls and self-terminates
+#    on completion — mirrors the /ultra-research pattern verbatim.
+```
+
+Pass the captured `$SLUG` into the same `/loop` cron prompt `/ultra-research` uses (see `skills/ultra-research/SKILL.md` Step 3). The polling loop, presentation, and CronDelete-on-complete logic are identical — only the submit command differs.
 
 ## Step 6: Present results
 
