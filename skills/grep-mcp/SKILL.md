@@ -135,7 +135,7 @@ Expected tool list:
 
 If the curl returns:
 - **401** — token wrong. API key path: re-check `grp_xxx`. Wallet path: receipt expired or invalid.
-- **402** — wallet balance empty. Run `purl prepay --amount 10` again, replace the `pi_xxx` in `.mcp.json`.
+- **402** — wallet balance empty. Run `purl prepay https://api.grep.ai/mpp/v1 --amount 10` again, replace the `pi_xxx` in `.mcp.json`.
 - **404** — wrong URL. v2 = `/api/v2/mcp`, gateway = `/mpp/v1/mcp`. Don't mix them.
 - **5xx** — backend issue, not config. Wait + retry.
 
@@ -162,7 +162,7 @@ These compose with the other Grep skills naturally: an agent can use the MCP too
 - **`/mcp` shows `grep` but `tools/list` is empty:** transport mismatch. Confirm `"transport": "http"` exactly (not `"stream"`, not `"sse"`).
 - **`grep` not listed in `/mcp` after restart:** `.mcp.json` not loaded. Check it's in `$PWD` (the project root, not `~`).
 - **Tool calls return 401 mid-conversation:** API key revoked or rotated. Re-issue at https://grep.ai/api-keys, replace in `.mcp.json`, restart.
-- **Wallet path: every tool call returns 402:** balance hit zero. Re-run `purl prepay --amount 10`, replace the `pi_xxx`, restart.
+- **Wallet path: every tool call returns 402:** balance hit zero. Re-run `purl prepay https://api.grep.ai/mpp/v1 --amount 10`, replace the `pi_xxx`, restart.
 
 ## Anti-patterns
 
