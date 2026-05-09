@@ -58,20 +58,15 @@ If axes aren't obvious, use **AskUserQuestion** with two questions:
 
 Skip if the prompt is already specific.
 
-## Step 3: Optional structured schema
+## Step 3: Decide whether to use a structured schema
 
-If the user wants enforced column types (currency, percent, URL, etc.) or a citation policy per row, load `resources/spreadsheet_schema.json` and pass via `--json-schema-file=`:
+If the user wants enforced column types (currency, percent, URL, etc.) or a citation policy per row, plan to pass `--json-schema-file="$RESOURCES_DIR/spreadsheet_schema.json"` to the submit command in Step 5 (do NOT submit yet — refine the prompt in Step 4 first).
 
-```bash
-node "$SCRIPTS_DIR/grep-api.js" run "<topic>" \
-  --output-type=spreadsheet \
-  --json-schema-file="$RESOURCES_DIR/spreadsheet_schema.json" \
-  --max-wait=1800
-```
+The schema constrains output to `{title, description, columns: [{key, label, type, unit}], rows: [{values, citations}], footer_notes}`. Column types: `string | number | currency | percent | date | url | boolean`. Note: per-value type validation against the column types is left to the app-builder — the schema only enforces the shape (columns array, rows array, presence of required top-level fields).
 
-The schema constrains output to `{title, description, columns: [{key, label, type, unit}], rows: [{values, citations}], footer_notes}`. Column types: `string | number | currency | percent | date | url | boolean`.
+For free-form spreadsheets (no enforced types), omit the schema flag.
 
-For free-form spreadsheets (no enforced types), omit `--json-schema-file`.
+**Don't submit here.** This step decides whether the schema flag will be added to Step 5's command. The actual submit happens once, in Step 5.
 
 ## Step 4: Refine the prompt
 
@@ -89,14 +84,27 @@ Example:
 
 ## Step 5: Submit — use Monitor (background)
 
+Submit ONCE here, using the refined prompt from Step 4. Append `--json-schema-file=...` only if Step 3 said to use the schema.
+
+**Free-form (no schema):**
+
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
   --output-type=spreadsheet --max-wait=1800 2>&1
 ```
 
+**Schema-constrained:**
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
+  --output-type=spreadsheet \
+  --json-schema-file="$RESOURCES_DIR/spreadsheet_schema.json" \
+  --max-wait=1800 2>&1
+```
+
 `--output-type=spreadsheet` is sugar for `--expert-id=app-builder --effort=build`. Don't pass both.
 
-Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`).
+Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Only one submit per skill invocation — the build tier is ~$2 each.
 
 ## Step 6: Tell the user
 

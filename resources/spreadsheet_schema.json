@@ -27,7 +27,11 @@
         "type": "object",
         "required": ["values"],
         "properties": {
-          "values": { "type": "object", "additionalProperties": true },
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Cell values keyed by column key. Per-value type validation against the column.type field is left to the app-builder — JSON Schema can't reference sibling properties to enforce that values[col.key] matches col.type."
+          },
           "citations": { "type": "array", "items": { "type": "string", "format": "uri" } }
         }
       }
