@@ -72,6 +72,11 @@ jobs:
           git add resources/experts.md
           git commit -m "chore: drift detected vs live /api/v2/experts (auto)"
           git push -u origin "$BRANCH"
+          # Ensure the "chore" label exists before applying it. `gh pr create
+          # --label foo` exits non-zero (which `set -euo pipefail` propagates)
+          # when foo doesn't exist on the repo, so create-if-missing first.
+          gh label create chore --color cccccc --description "Routine maintenance" 2>/dev/null || true
+
           gh pr create \
             --title "Sync experts.md drift ($(date -u +%Y-%m-%d))" \
             --body-file /tmp/drift.diff \
