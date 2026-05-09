@@ -66,14 +66,38 @@ If the user named a file but didn't give a path, ask:
 
 > "I'll upload <file count> file(s) to Grep, then submit research that uses them as input. Upload costs ~5¢/file (PAYG), then research costs depend on the effort tier (low / medium / high)."
 
-## Step 3: Upload each file
+## Step 3: Populate the FILES array, then upload each file
+
+First, populate the `FILES` bash array from the file paths Step 1 identified. Two common patterns:
+
+```bash
+# Option A — single file from $ARGUMENTS (e.g. user invoked `/grep-with-context /path/to/report.pdf "summarise"`)
+FILES=("$1")
+
+# Option B — multiple files passed as positional args before the question
+FILES=("$@")  # then capture the question separately, e.g. ARG_QUESTION="${@: -1}"
+
+# Option C — paths the agent collected from conversation context
+FILES=("/home/user/report.pdf" "/home/user/data.csv")
+```
+
+Pick whichever matches how the agent gathered the file list in Step 1. Verify each path exists before uploading:
+
+```bash
+for FILE in "${FILES[@]}"; do
+  [ -f "$FILE" ] || { echo "File not found: $FILE"; exit 1; }
+done
+[ ${#FILES[@]} -eq 0 ] && { echo "No files to upload"; exit 1; }
+```
+
+Then upload each. The slug-extraction one-liner uses Node (no `jq` dependency, matching the rest of the repo):
 
 ```bash
 ATTACHMENT_IDS=""
 for FILE in "${FILES[@]}"; do
   RESPONSE=$(node "$SCRIPTS_DIR/grep-api.js" upload "$FILE")
-  ATT_ID=$(echo "$RESPONSE" | jq -r '.attachment_id // .id')
-  if [ -z "$ATT_ID" ] || [ "$ATT_ID" = "null" ]; then
+  ATT_ID=$(echo "$RESPONSE" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.attachment_id||j.id||'')}")
+  if [ -z "$ATT_ID" ]; then
     echo "Upload failed for $FILE: $RESPONSE"
     exit 1
   fi
@@ -99,15 +123,18 @@ Mention the filenames in the prompt — the model uses them to address each atta
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
   --attachment-ids="$ATTACHMENT_IDS" \
-  --effort=<low|medium|high> --max-wait=540 2>&1
+  --effort=<low|medium> --max-wait=540 \
+  [--output-type=<slidedeck|spreadsheet|html_app>] 2>&1
 ```
 
-Run with **Monitor** (`timeout_ms` matching the `--max-wait`).
+`--output-type=` is optional — include it when the user wants a deliverable (deck, spreadsheet, app) rather than a plain report.
+
+Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The 20s slack between `--max-wait=540` and `timeout_ms=560000` lets Node flush the report before bash kills the process. Same pattern `/research` uses.
 
 Pick effort by the user's signal:
 - "quick summary" → `low`
 - (no signal) → `medium`
-- "thorough", "fact-check every claim", "comprehensive" → `high` (use `/ultra-research`'s polling pattern)
+- "thorough", "fact-check every claim", "comprehensive" → `high` — use `/ultra-research`'s polling pattern (submit non-blocking with `research`, then `/loop` cron). Don't block-wait `effort=high` via `run` — it can take up to 1 hour.
 
 ## Step 6: Tell the user
 
@@ -121,6 +148,20 @@ When the Monitor notification fires:
 2. Lead with **the files used**: "I researched using <filename1>, <filename2> and pulled in web sources to back the findings:"
 3. Present the report cleanly, preserving citations
 4. Note any claims from the attachments that the web research **contradicted** — important for fact-check use cases
+
+## CRITICAL: Always deliver results
+
+When the Monitor notification fires, you MUST read the output file and present the report. A research job that completes without surfacing results is a failed mission — especially here where uploads have already been charged (5¢ each).
+
+## Fallback: blocking Bash (only if Monitor is unavailable)
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
+  --attachment-ids="$ATTACHMENT_IDS" \
+  --effort=<low|medium> --max-wait=540 2>&1
+```
+
+Set Bash `timeout` to `560000`. The `--max-wait=540` leaves 20s of slack for Node to print results before bash kills it. If the job times out (exit 2), the slug is in the output — reuse it with `result <slug>`.
 
 ## Step 8: Cleanup (optional)
 
@@ -139,8 +180,9 @@ Default TTL on attachments is 7 days. Reuse the `attachment_id` across multiple 
 If the user does multiple research calls against the same documents (e.g. "summarise → then find related work → then build a deck"), capture the `attachment_id` once and pass it into each subsequent call:
 
 ```bash
-# Upload once
-ATT_ID=$(node "$SCRIPTS_DIR/grep-api.js" upload report.pdf | jq -r '.attachment_id')
+# Upload once — extract attachment_id without jq
+ATT_ID=$(node "$SCRIPTS_DIR/grep-api.js" upload report.pdf \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.attachment_id||j.id||'')}")
 
 # Reuse across multiple research jobs
 node "$SCRIPTS_DIR/grep-api.js" run "Summarise" --attachment-ids=$ATT_ID --effort=low
