@@ -96,11 +96,24 @@ Example:
 
 ## Step 5: Submit — use Monitor (background), NOT blocking Bash
 
+The submit command depends on whether Step 3 produced a context file. Pick the matching form:
+
+**With context (Step 3 ran):**
+
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "<refined_prompt>" \
   --expert-id=app-builder --effort=build --max-wait=1800 \
   --context-file="$CONTEXT_FILE" 2>&1
 ```
+
+**Without context (Step 3 skipped — self-contained app):**
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_prompt>" \
+  --expert-id=app-builder --effort=build --max-wait=1800 2>&1
+```
+
+Don't pass `--context-file=""` when no context was gathered — that expands to an empty path argument and `grep-api.js` will fail on the missing file. Just omit the flag entirely.
 
 Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Build jobs run 10-15 minutes — well over Bash's 10-min cap.
 
@@ -113,7 +126,7 @@ node "$SCRIPTS_DIR/grep-api.js" run "<refined>" --output-type=html_app --max-wai
 
 Use the explicit `--expert-id=app-builder --effort=build` form when you want to be unambiguous.
 
-**Clean up after:** `rm -f "$CONTEXT_FILE"` once the Monitor task completes.
+**Clean up after** (only if Step 3 ran): `[ -n "$CONTEXT_FILE" ] && rm -f "$CONTEXT_FILE"` once the Monitor task completes.
 
 ## Step 6: Tell the user
 
