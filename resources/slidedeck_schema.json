@@ -24,7 +24,7 @@
             "type": "object",
             "properties": {
               "type": { "type": "string", "enum": ["bar", "line", "pie", "scatter"] },
-              "data": { "type": "array" },
+              "data": { "type": "array", "items": {} },
               "x_label": { "type": "string" },
               "y_label": { "type": "string" }
             }

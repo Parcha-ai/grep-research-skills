@@ -57,20 +57,15 @@ If scope is fuzzy ("make me a deck about AI"), use **AskUserQuestion** with thes
 
 Skip if the answers are obvious from the prompt.
 
-## Step 3: Optional structured schema
+## Step 3: Decide whether to use a structured schema
 
-If the user wants a specific deck structure (e.g. enforced sections, citation format, chart slots), load `resources/slidedeck_schema.json` and pass it via `--json-schema-file=`:
-
-```bash
-node "$SCRIPTS_DIR/grep-api.js" run "<topic>" \
-  --output-type=slidedeck \
-  --json-schema-file="$RESOURCES_DIR/slidedeck_schema.json" \
-  --max-wait=1800
-```
+If the user wants a specific deck structure (e.g. enforced sections, citation format, chart slots), plan to pass `--json-schema-file="$RESOURCES_DIR/slidedeck_schema.json"` to the submit command in Step 5 (do NOT submit yet — refine the prompt in Step 4 first).
 
 The schema constrains slides to a structured form: title + subtitle + slides[], each with heading, body (string or bullet array), layout (title / bullets / two-column / image / chart / quote), optional chart spec, optional citations.
 
-For free-form decks, omit `--json-schema-file` — the app-builder picks layout, styling, and length on its own.
+For free-form decks, omit the schema flag — the app-builder picks layout, styling, and length on its own.
+
+**Don't submit here.** This step decides whether the schema flag will be added to Step 5's command. The actual submit happens once, in Step 5.
 
 ## Step 4: Refine the prompt
 
@@ -89,14 +84,27 @@ Example:
 
 ## Step 5: Submit — use Monitor (background)
 
+Submit ONCE here, using the refined prompt from Step 4. Append `--json-schema-file=...` only if Step 3 said to use the schema.
+
+**Free-form (no schema):**
+
 ```bash
 node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
   --output-type=slidedeck --max-wait=1800 2>&1
 ```
 
+**Schema-constrained:**
+
+```bash
+node "$SCRIPTS_DIR/grep-api.js" run "<refined>" \
+  --output-type=slidedeck \
+  --json-schema-file="$RESOURCES_DIR/slidedeck_schema.json" \
+  --max-wait=1800 2>&1
+```
+
 `--output-type=slidedeck` is sugar for `--expert-id=app-builder --effort=build` with a "Create a slidedeck about: " prefix added server-side. You don't need both.
 
-Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`).
+Run with **Monitor** (`timeout_ms: 1800000`, `persistent: false`). Only one submit per skill invocation — the build tier is ~$2 each, double-submitting is bad UX.
 
 ## Step 6: Tell the user
 
@@ -115,19 +123,20 @@ Find the deck — typically:
 - `deck.html`
 - `index.html` (fallback)
 
-Print the URL:
+Print the URL — use `$GREP_API_BASE` (or fall back to `https://api.grep.ai`) so staging / preview environments work too:
 
-```
-https://api.grep.ai/api/v2/research/<slug>/files/slides.html
+```bash
+API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
+echo "$API_BASE/api/v2/research/<slug>/files/slides.html"
 ```
 
 Tell the user how to view:
 
-> "Your slidedeck is ready: https://api.grep.ai/api/v2/research/<slug>/files/slides.html
+> "Your slidedeck is ready: `$API_BASE/api/v2/research/<slug>/files/slides.html`
 >
 > - **Navigate:** arrow keys (left/right) to step through slides
 > - **Export PDF:** open the URL with `?print-pdf` appended, then your browser's Print → Save as PDF
-> - **Local copy:** `curl -L 'https://api.grep.ai/api/v2/research/<slug>/files/slides.html' -H 'Authorization: Bearer <token>' > /tmp/deck.html && open /tmp/deck.html`"
+> - **Local copy:** `curl -L "$API_BASE/api/v2/research/<slug>/files/slides.html" -H 'Authorization: Bearer <token>' > /tmp/deck.html && open /tmp/deck.html`"
 
 The URL is auth-protected (workspace files require the user's session token).
 
