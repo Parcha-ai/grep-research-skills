@@ -193,18 +193,95 @@ async function checkStatus(jobIdOrSlug) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-async function getResult(jobIdOrSlug) {
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
-  const report = extractReport(result);
-  const slug = result.slug || jobIdOrSlug;
-  const jobUrl = `https://grep.ai/research/${slug}`;
-  if (report) {
-    console.log(`Status: ${result.status}\n\n${report}`);
-    console.log(`\n---\n[View full report on GREP](${jobUrl})`);
-  } else {
-    console.log(JSON.stringify(result, null, 2));
-    console.log(`\n---\n[View full report on GREP](${jobUrl})`);
+async function getResult(jobIdOrSlug, options = {}) {
+  // Polls until the job is complete (or maxWaitSeconds elapses). Same shape
+  // as runResearch's polling loop — bounded wall clock, 15s interval after
+  // an initial 20s wait, exits 0 with the report on success, 1 on failure,
+  // 2 on timeout. Use --no-wait to get the legacy single-GET behaviour.
+  const maxWaitSeconds = Number(options.maxWaitSeconds || 540);
+  const initialWaitMs = options.noWait ? 0 : 20_000;
+  const pollIntervalMs = 15_000;
+
+  // Single GET path — print whatever the server has now and exit 0
+  if (options.noWait) {
+    const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
+    const report = extractReport(result);
+    const slug = result.slug || jobIdOrSlug;
+    const jobUrl = `https://grep.ai/research/${slug}`;
+    if (report) {
+      console.log(`Status: ${result.status}\n\n${report}`);
+      console.log(`\n---\n[View full report on GREP](${jobUrl})`);
+    } else {
+      console.log(JSON.stringify(result, null, 2));
+      console.log(`\n---\n[View full report on GREP](${jobUrl})`);
+    }
+    return;
   }
+
+  // Polling path — wait for the job to reach a terminal status
+  const startedAt = Date.now();
+  let attempt = 0;
+  let seenMessageCount = 0;
+  if (initialWaitMs) await sleep(initialWaitMs);
+
+  while ((Date.now() - startedAt) / 1000 < maxWaitSeconds) {
+    attempt++;
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
+    const status = result.status;
+    const slug = result.slug || jobIdOrSlug;
+
+    // Print new status messages since the last poll
+    const messages = result.status_messages || [];
+    if (messages.length > seenMessageCount) {
+      for (let i = seenMessageCount; i < messages.length; i++) {
+        const msg = messages[i];
+        const statusText = msg?.content?.status || msg?.content?.text || '';
+        if (statusText) {
+          const summary = statusText.length > 300 ? statusText.slice(0, 297) + '...' : statusText;
+          process.stderr.write(`[result] > ${summary}\n`);
+        }
+      }
+      seenMessageCount = messages.length;
+    } else if (!messages.length && result.message && (attempt === 1 || attempt % 4 === 0)) {
+      process.stderr.write(`[result] > ${result.message}\n`);
+    }
+
+    if (status === 'completed' || status === 'complete') {
+      process.stderr.write(`[result] Completed in ${elapsed}s (${attempt} polls)\n`);
+      const report = extractReport(result);
+      const jobUrl = `https://grep.ai/research/${slug}`;
+      if (report) {
+        console.log(`Status: ${result.status}\n\n${report}`);
+        console.log(`\n---\n[View full report on GREP](${jobUrl})`);
+      } else {
+        console.log(JSON.stringify(result, null, 2));
+        console.log(`\n---\n[View full report on GREP](${jobUrl})`);
+      }
+      return;
+    }
+
+    if (status === 'failed') {
+      console.error(`[result] Job failed: ${result.error || 'unknown error'}`);
+      console.error(JSON.stringify(result, null, 2));
+      process.exit(1);
+    }
+
+    process.stderr.write(`[result] ${status} (${elapsed}s elapsed, poll ${attempt})...\n`);
+    await sleep(pollIntervalMs);
+  }
+
+  // Timeout — print what we have and exit 2 so callers can resume
+  process.stderr.write(`[result] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
+  const slug = jobIdOrSlug;
+  const jobUrl = `https://grep.ai/research/${slug}`;
+  console.log(JSON.stringify({
+    status: 'timeout',
+    slug,
+    job_url: jobUrl,
+    message: `Job still running after ${maxWaitSeconds}s. Re-run \`result ${slug}\` later or use \`--no-wait\` for a single GET.`,
+  }, null, 2));
+  process.exit(2);
 }
 
 async function listJobs() {
@@ -253,9 +330,20 @@ async function cancelJob(jobIdOrSlug) {
 }
 
 async function continueJob(jobIdOrSlug, question, opts = {}) {
+  // Forward the same body fields a fresh POST /research accepts, EXCEPT
+  // expert_id (the parent job's expert is inherited) and reference_jobs
+  // (the parent IS the reference). Everything else is a valid continuation
+  // hint — output_type especially, since "build me a deck from this research"
+  // is a canonical follow-up.
   const body = { question };
-  if (opts.effort) body.effort = opts.effort;
-  if (opts.context) body.context = opts.context;
+  if (opts.effort)                   body.effort = opts.effort;
+  if (opts.context)                  body.context = opts.context;
+  if (opts.outputType)               body.output_type = opts.outputType;
+  if (opts.responseLanguage)         body.response_language = opts.responseLanguage;
+  if (opts.jsonSchema)               body.json_schema = opts.jsonSchema;
+  if (opts.attachmentIds?.length)    body.attachment_ids = opts.attachmentIds;
+  if (opts.renderRichReport)         body.render_rich_report = true;
+  if (opts.webhookUrl)               body.webhook_url = opts.webhookUrl;
   const result = await api('POST', `${BASE_PATH}/research/${jobIdOrSlug}/continue`, body);
   console.log(JSON.stringify(result, null, 2));
 }
@@ -513,8 +601,8 @@ switch (command) {
     checkStatus(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'result':
-    if (!args[0]) { console.error('Usage: grep-api.js result <job_id_or_slug>'); process.exit(1); }
-    getResult(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    if (!args[0]) { console.error('Usage: grep-api.js result <job_id_or_slug> [--no-wait] [--max-wait=540]'); process.exit(1); }
+    getResult(args[0], { noWait: flags['no-wait'] === true, maxWaitSeconds: flags['max-wait'] }).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'jobs':
     listJobs().catch(e => { console.error(e.message); process.exit(1); });
@@ -536,8 +624,17 @@ switch (command) {
     cancelJob(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'continue':
-    if (!args[0] || !args[1]) { console.error('Usage: grep-api.js continue <job_id_or_slug> "<follow-up question>" [--effort=...]'); process.exit(1); }
-    continueJob(args[0], args.slice(1).join(' '), { effort: flags.effort, context: loadContext() }).catch(e => { console.error(e.message); process.exit(1); });
+    if (!args[0] || !args[1]) { console.error('Usage: grep-api.js continue <job_id_or_slug> "<follow-up question>" [--effort=...] [--output-type=...] [--attachment-ids=...] [--json-schema-file=...] [--render-rich-report] [--webhook-url=...] [--response-language=...] [--context=...] [--context-file=...]'); process.exit(1); }
+    continueJob(args[0], args.slice(1).join(' '), {
+      effort: flags.effort,
+      context: loadContext(),
+      outputType: flags['output-type'],
+      responseLanguage: flags['response-language'],
+      jsonSchema: loadJsonSchema(),
+      attachmentIds: flags['attachment-ids']?.split(',').filter(Boolean),
+      renderRichReport: flags['render-rich-report'] === true,
+      webhookUrl: flags['webhook-url'],
+    }).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'upload':
     if (!args[0]) { console.error('Usage: grep-api.js upload <path>'); process.exit(1); }
@@ -568,7 +665,7 @@ switch (command) {
     console.error('  node grep-api.js run "query"               Submit + poll to completion (blocking)');
     console.error('  node grep-api.js research "query"          Submit a research job (non-blocking)');
     console.error('  node grep-api.js status <slug>             Check job status');
-    console.error('  node grep-api.js result <slug>             Get job results (renders report)');
+    console.error('  node grep-api.js result <slug>             Poll until complete + render report (--no-wait for one-shot GET)');
     console.error('  node grep-api.js jobs                      List recent jobs');
     console.error('  node grep-api.js files <slug>              List workspace files');
     console.error('  node grep-api.js file <slug> <path>        Read one workspace file');
