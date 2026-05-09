@@ -103,17 +103,35 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
 
 ## Step 4: Verify the server responds
 
-`curl` the chosen MCP endpoint with a `tools/list` JSON-RPC call. Parse the response with Node (consistent with Step 3's "don't assume jq is installed" note):
+`curl` the chosen MCP endpoint with a `tools/list` JSON-RPC call. Parse the response with Node (consistent with Step 3's "don't assume jq is installed" note).
+
+First set the URL + auth header to match whichever path you took in Steps 1-3:
+
+```bash
+# API key (v2) path:
+MCP_URL="https://api.grep.ai/api/v2/mcp"
+AUTH_HEADER="Bearer grp_xxx_USER_PASTED_KEY"
+MIN_TOOLS=4   # v2 surface omits wallet_balance (gateway-only tool)
+
+# OR wallet receipt (gateway) path:
+MCP_URL="https://api.grep.ai/mpp/v1/mcp"
+AUTH_HEADER="Receipt pi_xxx_USER_PASTED_RECEIPT"
+MIN_TOOLS=5   # gateway exposes all 5 tools including wallet_balance
+```
+
+Then verify:
 
 ```bash
 curl -s "$MCP_URL" \
   -H "Authorization: $AUTH_HEADER" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
-  node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const t=JSON.parse(d).result?.tools??[];console.log(t.length>=5?'ok ('+t.length+' tools)':'only '+t.length+' tools — verification failed');process.exit(t.length>=5?0:1)}catch(e){console.error('parse error:',e.message);process.exit(1)}})"
+  MIN=$MIN_TOOLS node -e "const m=+process.env.MIN;let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const t=JSON.parse(d).result?.tools??[];console.log(t.length>=m?'ok ('+t.length+' tools)':'only '+t.length+' tools, expected '+m+' — verification failed');process.exit(t.length>=m?0:1)}catch(e){console.error('parse error:',e.message);process.exit(1)}})"
 ```
 
-Expected response: a JSON-RPC envelope listing 5 tools — `research_create`, `research_get`, `research_files_list`, `research_file_read`, `wallet_balance`.
+Expected tool list:
+- **v2 (`/api/v2/mcp`)** — 4 tools: `research_create`, `research_get`, `research_files_list`, `research_file_read`
+- **Gateway (`/mpp/v1/mcp`)** — 5 tools: the four above + `wallet_balance` (gateway-only, since wallet credits don't apply on v2)
 
 If the curl returns:
 - **401** — token wrong. API key path: re-check `grp_xxx`. Wallet path: receipt expired or invalid.
@@ -125,7 +143,7 @@ If the curl returns:
 
 MCP servers are loaded at Claude Code startup. After editing `.mcp.json`:
 
-> "Restart Claude Code, then run `/mcp` in the new session to confirm the `grep` server is listed. You'll see the 5 tools (`research_create`, `research_get`, `research_files_list`, `research_file_read`, `wallet_balance`) attached to your conversation."
+> "Restart Claude Code, then run `/mcp` in the new session to confirm the `grep` server is listed. You'll see the research tools (`research_create`, `research_get`, `research_files_list`, `research_file_read`) attached to your conversation. Wallet users get an additional `wallet_balance` tool (gateway-only)."
 
 ## Tool reference (what the agent gets after setup)
 
