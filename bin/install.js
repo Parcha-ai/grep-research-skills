@@ -90,6 +90,12 @@ function main() {
   // Copy skills/
   copyDirSync(path.join(PKG_ROOT, 'skills'), path.join(INSTALL_DIR, 'skills'));
 
+  // Copy resources/ (skill-readable static data — expert catalog, intent map, schemas)
+  const resourcesSrc = path.join(PKG_ROOT, 'resources');
+  if (fs.existsSync(resourcesSrc)) {
+    copyDirSync(resourcesSrc, path.join(INSTALL_DIR, 'resources'));
+  }
+
   // Copy plugin manifest
   const pluginDir = path.join(INSTALL_DIR, '.claude-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
