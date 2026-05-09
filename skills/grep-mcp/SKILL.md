@@ -1,6 +1,6 @@
 ---
 name: grep-mcp
-description: Attach a Grep MCP server to .mcp.json so Claude has 5 native research tools (research_create, research_get, research_files_list, research_file_read, wallet_balance) without writing curl. Use when the user wants Grep available as MCP tools, says "install Grep MCP", "set up Grep MCP server", or wants to research via MCP instead of HTTP. Reads the existing .mcp.json (or creates one), merges the grep entry, and verifies the server responds to tools/list.
+description: Attach a Grep MCP server to .mcp.json so Claude has 4–5 native research tools without writing curl. API key (v2) users get 4 tools (research_create, research_get, research_files_list, research_file_read); wallet/gateway users also get wallet_balance. Use when the user wants Grep available as MCP tools, says "install Grep MCP", "set up Grep MCP server", or wants to research via MCP instead of HTTP. Reads the existing .mcp.json (or creates one), merges the grep entry, and verifies the server responds to tools/list.
 ---
 
 # Grep MCP Server Setup
