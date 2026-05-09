@@ -218,7 +218,10 @@ async function listFiles(jobIdOrSlug) {
 }
 
 async function readFile(jobIdOrSlug, filePath) {
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files/${encodeURI(filePath)}`);
+  // Encode each path segment with encodeURIComponent (not encodeURI) so #, ?, &, =
+  // in filenames don't silently corrupt the URL.
+  const encoded = filePath.split('/').map(encodeURIComponent).join('/');
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files/${encoded}`);
   process.stdout.write(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
 }
 
@@ -285,7 +288,11 @@ async function getDiscovery() {
 
 async function getWallet(address) {
   // Gateway-only public endpoint — read the wallet's bonus_credits balance.
-  const res = await fetch(`${GREP_API_BASE}/mpp/v1/api/wallet/${address.toLowerCase()}`);
+  // Uses BASE_PATH so GREP_API_BASE_PATH override is respected; falls back to
+  // /mpp/v1/api when running on the v2 surface (the gateway is the only place
+  // /wallet exists).
+  const walletBase = SURFACE === 'gateway' ? BASE_PATH : '/mpp/v1/api';
+  const res = await fetch(`${GREP_API_BASE}${walletBase}/wallet/${address.toLowerCase()}`);
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   console.log(JSON.stringify(await res.json(), null, 2));
 }
