@@ -221,8 +221,25 @@ async function readFile(jobIdOrSlug, filePath) {
   // Encode each path segment with encodeURIComponent (not encodeURI) so #, ?, &, =
   // in filenames don't silently corrupt the URL.
   const encoded = filePath.split('/').map(encodeURIComponent).join('/');
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files/${encoded}`);
-  process.stdout.write(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+
+  // Bypass api()'s unconditional res.json() — workspace files are usually
+  // markdown/plaintext/binary, not JSON. Build the request inline so we can
+  // dispatch on Content-Type.
+  const headers = await buildAuthHeaders();
+  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/research/${jobIdOrSlug}/files/${encoded}`, { headers });
+  if (res.status === 402) { await handle402(res); return; }
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    const obj = await res.json();
+    process.stdout.write(typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2));
+  } else {
+    // Text, markdown, HTML, CSS, JS — write through verbatim. Binary files
+    // (images, PDFs) are written as a Buffer — callers can redirect to a file.
+    const buf = Buffer.from(await res.arrayBuffer());
+    process.stdout.write(buf);
+  }
 }
 
 async function getTimeline(jobIdOrSlug) {
