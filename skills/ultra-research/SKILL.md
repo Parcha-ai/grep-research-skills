@@ -3,7 +3,7 @@ name: ultra-research
 description: Exhaustive deep investigation via GREP (CAN TAKE UP TO 1 HOUR). Use for the most demanding research tasks — security audits, legal research, regulatory analysis, full ecosystem surveys, multi-source synthesis, adversarial threat modeling, or any query where completeness matters more than speed. Use sparingly; this tier is slow and cannot be block-waited in a single call. The skill submits the job then schedules a /loop cron that polls every 5 minutes until complete. Use /research (~5 min) for most tasks, or /quick-research (~25s) for simple lookups.
 ---
 
-# Ultra Research (ultra_deep)
+# Ultra Research (effort=high)
 
 GREP's most thorough tier. **Takes up to 1 hour.** Cannot be block-waited (Claude Code's bash tool caps at 10 minutes), so this skill uses the `/loop` feature to schedule an automatic recurring status check until the job completes.
 
@@ -46,7 +46,7 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 Use the `research` subcommand (not `run`) so submission returns immediately with a job ID:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" research "$ARGUMENTS" --depth=ultra_deep
+node "$SCRIPTS_DIR/grep-api.js" research "$ARGUMENTS" --effort=high
 ```
 
 The output is a JSON object with a `job_id` field. Capture that value — you'll need it for the loop.
@@ -101,7 +101,7 @@ Ultra-deep reports are dense. Structure the presentation:
 
 ## Anti-patterns
 
-- Do NOT use `run` (the blocking command) for ultra_deep — it will hit the bash 10-min cap and fail before the job completes.
+- Do NOT use `run` (the blocking command) for `effort=high` — high-effort jobs can run up to an hour, which will hit the bash 10-min cap and fail before the job completes.
 - Do NOT default to `/ultra-research`. Start with `/research` and escalate only if needed.
 - Do NOT set the loop interval below 5m. Ultra-deep jobs don't benefit from aggressive polling — it just wastes cron fires.
 - Do NOT forget to call `CronDelete` in the prompt's completion branch. Otherwise the cron will keep firing for 7 days.

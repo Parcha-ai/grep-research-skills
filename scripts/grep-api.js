@@ -2,12 +2,18 @@
 /**
  * GREP API Client - Submit research jobs and poll for results
  *
- * Usage:
- *   node grep-api.js research "What is quantum computing?"
- *   node grep-api.js status <job_id>
- *   node grep-api.js result <job_id>
+ * Two surfaces:
+ *   GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth
+ *   GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (set GREP_RECEIPT=pi_xxx)
  *
- * Reads auth token from ~/.grep/session.json (via auth.js)
+ * Usage:
+ *   node grep-api.js run "What is quantum computing?" --effort=low
+ *   node grep-api.js status <slug>
+ *   node grep-api.js result <slug>
+ *   node grep-api.js files <slug>
+ *
+ * v2 reads auth token from ~/.grep/session.json (via auth.js).
+ * Gateway uses GREP_RECEIPT env var (the pi_xxx returned by purl/mppx prepay).
  */
 
 const fs = require('fs');
@@ -17,6 +23,20 @@ const GREP_API_BASE = process.env.GREP_API_BASE || 'https://api.grep.ai';
 const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.grep', 'session.json');
 const DESCOPE_PROJECT_ID = 'P35S8vZ7BYoDSOJVaYbIDRZObJq6';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
+
+// Surface selection:
+//   GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth
+//   GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (GREP_RECEIPT=pi_xxx)
+const SURFACE = process.env.GREP_SURFACE || 'v2';
+const BASE_PATH = process.env.GREP_API_BASE_PATH || (SURFACE === 'gateway' ? '/mpp/v1/api' : '/api/v2');
+
+// Map legacy depth vocab to canonical effort vocab.
+const DEPTH_TO_EFFORT = {
+  ultra_fast: 'low',
+  deep: 'medium',
+  ultra: 'high',
+  ultra_deep: 'high',
+};
 
 // Load session from disk
 function loadSession() {
@@ -94,19 +114,48 @@ async function getValidToken() {
   return session.sessionJwt;
 }
 
+// Build the Authorization header for the active surface.
+// v2: Bearer <jwt-or-api-key>. Gateway: Receipt <pi_xxx>.
+async function buildAuthHeaders() {
+  if (SURFACE === 'gateway') {
+    if (!process.env.GREP_RECEIPT) {
+      console.error('[grep-api] GREP_SURFACE=gateway requires GREP_RECEIPT=pi_xxx.');
+      console.error('[grep-api] Fund a wallet first: `purl prepay https://api.grep.ai/mpp/v1 --amount 10`');
+      console.error('[grep-api] then export GREP_RECEIPT=<the pi_xxx the verifier prints>.');
+      process.exit(1);
+    }
+    return { Authorization: `Receipt ${process.env.GREP_RECEIPT}` };
+  }
+  const token = await getValidToken();
+  return { Authorization: `Bearer ${token}` };
+}
+
+// Print a 402 payment-required body in a clean shape, then exit 3.
+async function handle402(res) {
+  const eb = await res.json().catch(() => ({}));
+  console.error(JSON.stringify({
+    error: 'payment_required',
+    message: eb.error?.message || eb.detail || 'Balance insufficient — top up required',
+    payment: eb.error?.payment || eb.accepts || null,
+    minimum_topup_cents: eb.error?.payment?.minimum_topup_cents || 1000,
+  }, null, 2));
+  process.exit(3);
+}
+
 // API call helper — fetches a fresh (possibly refreshed) token on every call.
 async function api(method, endpoint, body) {
-  const token = await getValidToken();
-  const opts = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-  };
+  const headers = await buildAuthHeaders();
+  headers['Content-Type'] = 'application/json';
+  const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
 
   const res = await fetch(`${GREP_API_BASE}${endpoint}`, opts);
+
+  if (res.status === 402) {
+    await handle402(res);
+    return;  // unreachable; handle402 calls process.exit(3)
+  }
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`API error ${res.status}: ${text}`);
@@ -116,27 +165,39 @@ async function api(method, endpoint, body) {
 
 // === Commands ===
 
-async function submitResearch(query, options = {}) {
+function buildSubmitBody(query, options = {}) {
   const body = {
     question: query,
-    depth: options.depth || 'deep',
+    effort: options.effort || DEPTH_TO_EFFORT[options.depth] || 'medium',
   };
-  if (options.approach) body.approach = options.approach;
-  if (options.context) body.context = options.context;
+  if (options.expertId)              body.expert_id = options.expertId;
+  if (options.outputType)            body.output_type = options.outputType;
+  if (options.context)               body.context = options.context;
+  if (options.responseLanguage)      body.response_language = options.responseLanguage;
+  if (options.jsonSchema)            body.json_schema = options.jsonSchema;
+  if (options.referenceJobs?.length) body.reference_jobs = options.referenceJobs;
+  if (options.attachmentIds?.length) body.attachment_ids = options.attachmentIds;
+  if (options.renderRichReport)      body.render_rich_report = true;
+  if (options.webhookUrl)            body.webhook_url = options.webhookUrl;
+  return body;
+}
 
-  const result = await api('POST', '/api/v1/research', body);
+async function submitResearch(query, options = {}) {
+  const body = buildSubmitBody(query, options);
+  const result = await api('POST', `${BASE_PATH}/research`, body);
   console.log(JSON.stringify(result, null, 2));
 }
 
-async function checkStatus(jobId) {
-  const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
+async function checkStatus(jobIdOrSlug) {
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
   console.log(JSON.stringify(result, null, 2));
 }
 
-async function getResult(jobId) {
-  const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
+async function getResult(jobIdOrSlug) {
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
   const report = extractReport(result);
-  const jobUrl = `https://grep.ai/research/${jobId}`;
+  const slug = result.slug || jobIdOrSlug;
+  const jobUrl = `https://grep.ai/research/${slug}`;
   if (report) {
     console.log(`Status: ${result.status}\n\n${report}`);
     console.log(`\n---\n[View full report on GREP](${jobUrl})`);
@@ -147,8 +208,86 @@ async function getResult(jobId) {
 }
 
 async function listJobs() {
-  const result = await api('GET', '/api/v1/research');
+  const result = await api('GET', `${BASE_PATH}/research`);
   console.log(JSON.stringify(result, null, 2));
+}
+
+async function listFiles(jobIdOrSlug) {
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files`);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function readFile(jobIdOrSlug, filePath) {
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files/${encodeURI(filePath)}`);
+  process.stdout.write(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+}
+
+async function getTimeline(jobIdOrSlug) {
+  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/timeline`);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cancelJob(jobIdOrSlug) {
+  const result = await api('POST', `${BASE_PATH}/research/${jobIdOrSlug}/cancel`, {});
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function continueJob(jobIdOrSlug, question, opts = {}) {
+  const body = { question };
+  if (opts.effort) body.effort = opts.effort;
+  if (opts.context) body.context = opts.context;
+  const result = await api('POST', `${BASE_PATH}/research/${jobIdOrSlug}/continue`, body);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function uploadAttachment(filePath) {
+  const fileBuf = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+  const form = new FormData();
+  form.append('files', new Blob([fileBuf]), fileName);
+
+  const headers = await buildAuthHeaders();
+  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/attachments`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+  if (res.status === 402) { await handle402(res); return; }
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+  console.log(JSON.stringify(await res.json(), null, 2));
+}
+
+async function deleteAttachment(id) {
+  const headers = await buildAuthHeaders();
+  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/attachments/${id}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (res.status === 402) { await handle402(res); return; }
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+  console.log(JSON.stringify({ deleted: id }, null, 2));
+}
+
+async function listExperts() {
+  // Public, no auth.
+  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/experts`);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+  console.log(JSON.stringify(await res.json(), null, 2));
+}
+
+async function getDiscovery() {
+  // v2 publishes its contract via /openapi.json; gateway has /mpp/v1/api.
+  const url = SURFACE === 'gateway' ? `${GREP_API_BASE}${BASE_PATH}` : `${GREP_API_BASE}/openapi.json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+  console.log(JSON.stringify(await res.json(), null, 2));
+}
+
+async function getWallet(address) {
+  // Gateway-only public endpoint — read the wallet's bonus_credits balance.
+  const res = await fetch(`${GREP_API_BASE}/mpp/v1/api/wallet/${address.toLowerCase()}`);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
+  console.log(JSON.stringify(await res.json(), null, 2));
 }
 
 // Sleep helper
@@ -186,43 +325,37 @@ function extractReport(result) {
 // Prints heartbeat to stderr, final report to stdout.
 // Exits 0 on success, 1 on failure, 2 on timeout (with job_id so caller can resume).
 async function runResearch(query, options = {}) {
-  const depth = options.depth || 'deep';
   // Default max wait: 540s (9 min). Must stay under the Bash tool's 10-min hard cap.
-  // Individual skills override this: /quick-research uses 60, /research uses 540,
-  // /ultra-research does NOT use `run` (it submits + polls across turns) because
-  // ultra-deep jobs can run up to 1 hour.
   const maxWaitSeconds = Number(options.maxWaitSeconds || 540);
   const initialWaitMs = 20_000;  // first poll after 20s
   const pollIntervalMs = 15_000; // then every 15s
 
   // 1. Submit
-  const submitBody = { question: query, depth };
-  if (options.context) submitBody.context = options.context;
-  process.stderr.write(`[research] Submitting (depth=${depth})...\n`);
-  const submitted = await api('POST', '/api/v1/research', submitBody);
+  const submitBody = buildSubmitBody(query, options);
+  process.stderr.write(`[research] Submitting (effort=${submitBody.effort}${submitBody.expert_id ? `, expert=${submitBody.expert_id}` : ''}${submitBody.output_type ? `, output_type=${submitBody.output_type}` : ''})...\n`);
+  const submitted = await api('POST', `${BASE_PATH}/research`, submitBody);
   const jobId = submitted.job_id || submitted.id;
+  const slug = submitted.slug || jobId;
   if (!jobId) {
     console.error('[research] No job_id in submit response');
     console.error(JSON.stringify(submitted, null, 2));
     process.exit(1);
   }
-  process.stderr.write(`[research] Job ${jobId} submitted, polling for results...\n`);
+  process.stderr.write(`[research] Job ${slug} submitted, polling for results...\n`);
 
   // 2. Poll with bounded wall clock
   const startedAt = Date.now();
   let attempt = 0;
-  let seenMessageCount = 0; // track which status_messages we've already printed
+  let seenMessageCount = 0;
   await sleep(initialWaitMs);
 
   while ((Date.now() - startedAt) / 1000 < maxWaitSeconds) {
     attempt++;
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    const result = await api('GET', `/api/v1/research/${jobId}?include_status_messages=true`);
+    const result = await api('GET', `${BASE_PATH}/research/${slug}`);
     const status = result.status;
 
     // Print any new status messages since last poll.
-    // Messages have structure: { event, content: { status, content: { type } } }
-    // The human-readable progress is in content.status (e.g. "Thinking: ...", "Searching...")
     const messages = result.status_messages || [];
     if (messages.length > seenMessageCount) {
       for (let i = seenMessageCount; i < messages.length; i++) {
@@ -234,12 +367,15 @@ async function runResearch(query, options = {}) {
         }
       }
       seenMessageCount = messages.length;
+    } else if (!messages.length && result.message && (attempt === 1 || attempt % 4 === 0)) {
+      // Gateway-style heartbeat — no streaming messages, just the high-level status.
+      process.stderr.write(`[research] > ${result.message}\n`);
     }
 
     if (status === 'completed' || status === 'complete') {
       process.stderr.write(`[research] Completed in ${elapsed}s (${attempt} polls)\n`);
       const report = extractReport(result);
-      const jobUrl = `https://grep.ai/research/${jobId}`;
+      const jobUrl = `https://grep.ai/research/${slug}`;
       if (report) {
         console.log(report);
         console.log(`\n---\n[View full report on GREP](${jobUrl})`);
@@ -262,19 +398,20 @@ async function runResearch(query, options = {}) {
 
   // 3. Timeout — leave the job running, caller can resume via status/result
   process.stderr.write(`[research] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
-  const jobUrl = `https://grep.ai/research/${jobId}`;
+  const jobUrl = `https://grep.ai/research/${slug}`;
   console.log(JSON.stringify({
     status: 'timeout',
     job_id: jobId,
+    slug,
     job_url: jobUrl,
-    message: `Research job is still running after ${maxWaitSeconds}s. Check later with: status ${jobId}`,
+    message: `Research job is still running after ${maxWaitSeconds}s. Check later with: status ${slug}`,
   }, null, 2));
   process.exit(2);
 }
 
 // === Main ===
 
-// Parse argv: pull out flags like --depth=deep, --max-wait=600, leaving positional args
+// Parse argv: pull out flags like --effort=low, --max-wait=600, leaving positional args
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -309,49 +446,148 @@ function loadContext() {
   return flags.context || undefined;
 }
 
+function loadJsonSchema() {
+  if (flags['json-schema-file']) {
+    try {
+      return JSON.parse(fs.readFileSync(flags['json-schema-file'], 'utf8'));
+    } catch (e) {
+      console.error(`Failed to read json-schema-file: ${e.message}`);
+      process.exit(1);
+    }
+  }
+  return undefined;
+}
+
+function commonOptions() {
+  return {
+    effort: flags.effort,
+    depth: flags.depth,  // legacy
+    maxWaitSeconds: flags['max-wait'],
+    context: loadContext(),
+    expertId: flags['expert-id'],
+    outputType: flags['output-type'],
+    referenceJobs: flags['reference-jobs']?.split(',').filter(Boolean),
+    attachmentIds: flags['attachment-ids']?.split(',').filter(Boolean),
+    renderRichReport: flags['render-rich-report'] === true,
+    webhookUrl: flags['webhook-url'],
+    jsonSchema: loadJsonSchema(),
+    responseLanguage: flags['response-language'],
+  };
+}
+
 switch (command) {
   case 'run':
-    // Blocking: submit + poll to completion + print report
-    if (!args[0]) { console.error('Usage: grep-api.js run "query" [--depth=deep|ultra_fast|ultra_deep] [--max-wait=480] [--context-file=path]'); process.exit(1); }
-    runResearch(args.join(' '), {
-      depth: flags.depth,
-      maxWaitSeconds: flags['max-wait'],
-      context: loadContext(),
-    }).catch(e => { console.error(e.message); process.exit(1); });
+    if (!args[0]) { console.error('Usage: grep-api.js run "query" [--effort=low|medium|high|build] [--max-wait=540] [--context-file=path] [--expert-id=...] [--output-type=...]'); process.exit(1); }
+    runResearch(args.join(' '), commonOptions()).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'research':
-    // Non-blocking: submit only, print job_id
-    if (!args[0]) { console.error('Usage: grep-api.js research "query"'); process.exit(1); }
-    submitResearch(args.join(' '), { depth: flags.depth, context: loadContext() }).catch(e => { console.error(e.message); process.exit(1); });
+    if (!args[0]) { console.error('Usage: grep-api.js research "query" [--effort=...]'); process.exit(1); }
+    submitResearch(args.join(' '), commonOptions()).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'status':
-    if (!args[0]) { console.error('Usage: grep-api.js status <job_id>'); process.exit(1); }
+    if (!args[0]) { console.error('Usage: grep-api.js status <job_id_or_slug>'); process.exit(1); }
     checkStatus(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'result':
-    if (!args[0]) { console.error('Usage: grep-api.js result <job_id>'); process.exit(1); }
+    if (!args[0]) { console.error('Usage: grep-api.js result <job_id_or_slug>'); process.exit(1); }
     getResult(args[0]).catch(e => { console.error(e.message); process.exit(1); });
     break;
   case 'jobs':
     listJobs().catch(e => { console.error(e.message); process.exit(1); });
     break;
+  case 'files':
+    if (!args[0]) { console.error('Usage: grep-api.js files <job_id_or_slug>'); process.exit(1); }
+    listFiles(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'file':
+    if (!args[0] || !args[1]) { console.error('Usage: grep-api.js file <job_id_or_slug> <path>'); process.exit(1); }
+    readFile(args[0], args[1]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'timeline':
+    if (!args[0]) { console.error('Usage: grep-api.js timeline <job_id_or_slug>'); process.exit(1); }
+    getTimeline(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'cancel':
+    if (!args[0]) { console.error('Usage: grep-api.js cancel <job_id_or_slug>'); process.exit(1); }
+    cancelJob(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'continue':
+    if (!args[0] || !args[1]) { console.error('Usage: grep-api.js continue <job_id_or_slug> "<follow-up question>" [--effort=...]'); process.exit(1); }
+    continueJob(args[0], args.slice(1).join(' '), { effort: flags.effort, context: loadContext() }).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'upload':
+    if (!args[0]) { console.error('Usage: grep-api.js upload <path>'); process.exit(1); }
+    uploadAttachment(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'delete-attachment':
+    if (!args[0]) { console.error('Usage: grep-api.js delete-attachment <attachment_id>'); process.exit(1); }
+    deleteAttachment(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'experts':
+    listExperts().catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'discovery':
+    getDiscovery().catch(e => { console.error(e.message); process.exit(1); });
+    break;
+  case 'wallet':
+    if (!args[0]) { console.error('Usage: grep-api.js wallet <wallet_address>'); process.exit(1); }
+    getWallet(args[0]).catch(e => { console.error(e.message); process.exit(1); });
+    break;
   default:
     console.error('GREP API Client');
     console.error('');
+    console.error('Surfaces:');
+    console.error('  GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth');
+    console.error('  GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (set GREP_RECEIPT=pi_xxx)');
+    console.error('');
     console.error('Usage:');
-    console.error('  node grep-api.js run "query"         Submit + poll to completion (blocking)');
-    console.error('  node grep-api.js research "query"    Submit a research job (non-blocking)');
-    console.error('  node grep-api.js status <job_id>     Check job status');
-    console.error('  node grep-api.js result <job_id>     Get job results');
-    console.error('  node grep-api.js jobs                List recent jobs');
+    console.error('  node grep-api.js run "query"               Submit + poll to completion (blocking)');
+    console.error('  node grep-api.js research "query"          Submit a research job (non-blocking)');
+    console.error('  node grep-api.js status <slug>             Check job status');
+    console.error('  node grep-api.js result <slug>             Get job results (renders report)');
+    console.error('  node grep-api.js jobs                      List recent jobs');
+    console.error('  node grep-api.js files <slug>              List workspace files');
+    console.error('  node grep-api.js file <slug> <path>        Read one workspace file');
+    console.error('  node grep-api.js timeline <slug>           Get message timeline');
+    console.error('  node grep-api.js cancel <slug>             Cancel a running job');
+    console.error('  node grep-api.js continue <slug> "..."     Continue a completed job with follow-up');
+    console.error('  node grep-api.js upload <path>             Upload an attachment (returns attachment_id)');
+    console.error('  node grep-api.js delete-attachment <id>    Delete an attachment');
+    console.error('  node grep-api.js experts                   List public domain experts (free, no auth)');
+    console.error('  node grep-api.js discovery                 Discovery doc / OpenAPI (free, no auth)');
+    console.error('  node grep-api.js wallet <address>          Read wallet balance (gateway only, free)');
     console.error('');
     console.error('Flags:');
-    console.error('  --depth=<ultra_fast|deep|ultra_deep>  Research depth (default: deep)');
-    console.error('    ultra_fast  ~25 seconds');
-    console.error('    deep        ~5 minutes (range 2-9 min)');
-    console.error('    ultra_deep  up to 1 hour — NOT recommended with `run`, use `research` + polling');
-    console.error('  --max-wait=<seconds>                  Max wait for `run` command (default: 540, cap 540)');
-    console.error('  --context-file=<path>                 Read additional context from file and send with request');
-    console.error('  --context="<text>"                    Inline additional context string');
+    console.error('  --effort=<low|medium|high|build>     Effort tier (default: medium)');
+    console.error('    low      ~25s — quick lookup     (~40¢ on gateway, 2¢ promo)');
+    console.error('    medium   ~5min — standard          (~$2.00 on gateway)');
+    console.error('    high     up to 1 hour — exhaustive (~$10.00 on gateway)');
+    console.error('    build    10-15 min — runnable HTML (~$2.00 on gateway, used with --output-type)');
+    console.error('  --depth=<ultra_fast|deep|ultra_deep> Legacy alias for --effort (mapped automatically)');
+    console.error('  --expert-id=<id>                     Route to a specific expert (see `experts` command)');
+    console.error('  --output-type=<slidedeck|spreadsheet|html_app|podcast|video|news_broadcast>');
+    console.error('  --reference-jobs=<id1>,<id2>         Build on prior jobs (multi-step workflows)');
+    console.error('  --attachment-ids=<id1>,<id2>         Mount uploaded files in the workspace');
+    console.error('  --render-rich-report                 Request a rich-rendered report');
+    console.error('  --webhook-url=<url>                  POST completion to this URL');
+    console.error('  --json-schema-file=<path>            Constrain output to a JSON Schema');
+    console.error('  --response-language=<lang>           Response language (e.g. "en", "es")');
+    console.error('  --max-wait=<seconds>                 Max wait for `run` (default 540, cap 540)');
+    console.error('  --context-file=<path>                Read context from file');
+    console.error('  --context="<text>"                   Inline context string');
+    console.error('');
+    console.error('Env:');
+    console.error('  GREP_API_BASE              Override the API host (default https://api.grep.ai)');
+    console.error('  GREP_SURFACE               v2 (default) or gateway');
+    console.error('  GREP_RECEIPT               Stripe pi_xxx receipt (required when surface=gateway)');
+    console.error('  GREP_API_BASE_PATH         Override the base path (rare)');
+    console.error('');
+    console.error('Gateway pricing note:');
+    console.error('  Each GET that touches user data costs 1¢ (poll, files, timeline).');
+    console.error('  A 5-min `run` poll loop = ~20 polls × 1¢ = 20¢ on top of the job cost.');
+    console.error('  Top up with: purl prepay https://api.grep.ai/mpp/v1 --amount 10');
+    console.error('');
+    console.error('Exit codes:');
+    console.error('  0 success   1 error/auth   2 timeout (job still running)   3 payment_required');
     process.exit(1);
 }
