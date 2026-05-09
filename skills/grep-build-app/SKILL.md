@@ -19,6 +19,12 @@ Routes a build request to Grep's `app-builder` expert, which produces a runnable
 
 Concrete signals you want this skill: "build me a", "make an interactive", "create a dashboard for", "I want to be able to click/sort/filter", "tool that lets me X".
 
+## Resolve script path
+
+```bash
+SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
+```
+
 ## Auto-update check
 
 ```bash
@@ -34,12 +40,6 @@ node "$SCRIPTS_DIR/auth.js" status
 ```
 
 If `"authenticated": false`, **automatically invoke `/grep-login`** and continue once authenticated.
-
-## Resolve script path
-
-```bash
-SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-```
 
 ## Step 1: Tell the user up front
 
@@ -158,14 +158,22 @@ When the Monitor notification arrives saying the job completed:
 
 ## Step 8: Optionally fetch artifacts locally
 
-If the user wants the app on disk (to commit, host, or modify), download every workspace file:
+If the user wants the app on disk (to commit, host, or modify), download every workspace file. The loop uses Node (no jq dependency) and creates parent directories per file, so nested paths like `js/app.js` work:
 
 ```bash
-mkdir -p /tmp/grep-app-<slug>
-for f in $(node "$SCRIPTS_DIR/grep-api.js" files <slug> | jq -r '.files[].path'); do
-  node "$SCRIPTS_DIR/grep-api.js" file <slug> "$f" > "/tmp/grep-app-<slug>/$f"
-done
-open "/tmp/grep-app-<slug>/index.html"
+SLUG=<slug>
+DEST=/tmp/grep-app-$SLUG
+mkdir -p "$DEST"
+
+# Read the file list, then download each — using Node so we don't depend on jq
+node "$SCRIPTS_DIR/grep-api.js" files "$SLUG" \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);(j.files||j).forEach(f=>console.log(f.path||f))})" \
+  | while read -r f; do
+      mkdir -p "$DEST/$(dirname "$f")"
+      node "$SCRIPTS_DIR/grep-api.js" file "$SLUG" "$f" > "$DEST/$f"
+    done
+
+open "$DEST/index.html"
 ```
 
 ## Anti-patterns
