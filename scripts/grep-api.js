@@ -163,11 +163,25 @@ async function handle402(res) {
       : Math.round(Number(a.maxAmountRequired) / 10000);
     const dollars = (cents / 100).toFixed(2);
 
+    // Per Parcha-ai/parcha #6192, the Stripe entry's `extra` now carries:
+    //   - livemode: false on sandbox backends (preview-api.grep.ai) where the
+    //                STRIPE_SECRET_KEY is sk_test_*, true on prod (api.grep.ai).
+    //                When false, link-cli MUST be invoked with --test so it
+    //                signs against Stripe's test card universe; pairing a live
+    //                SPT against a test backend (or vice versa) fails to charge
+    //                or — worst case — charges real money on a backend that
+    //                thinks it credited test cents.
+    //   - stripe_account_id: informational ("link-cli must be logged into
+    //                this account"). Surface it so future agents can validate.
+    const livemode = a.extra?.livemode;
+    const stripeAccountId = a.extra?.stripe_account_id || null;
+    const sandboxFlag = (a.network === 'stripe' && livemode === false) ? ' --test' : '';
+
     const clientHint = a.network === 'stripe'
-      ? `npm i -g @stripe/link-cli && link-cli mpp pay ${resourceUrl} --amount ${cents}`
+      ? `npm i -g @stripe/link-cli && link-cli mpp pay ${resourceUrl} --amount ${cents}${sandboxFlag}`
       : `purl prepay ${resourceUrl.replace(/\/api\/?$/, '').replace(/\/research$/, '')} --amount ${dollars}`;
 
-    return {
+    const rail = {
       rail: a.network === 'stripe' ? 'stripe-link' : 'base-usdc',
       network: a.network,
       asset: a.asset,
@@ -178,6 +192,21 @@ async function handle402(res) {
         ? 'Push notification on user phone via Link app — tap Approve $X.XX. Recommended for accountless agents.'
         : 'Sign EIP-3009 envelope with a USDC wallet on Base. Recommended when Stripe Link is unavailable.',
     };
+
+    // Surface Stripe sandbox/live mode to the agent so it can validate before paying
+    if (a.network === 'stripe') {
+      rail.livemode = livemode;
+      rail.stripe_account_id = stripeAccountId;
+      if (livemode === false) {
+        rail.mode_note = 'livemode=false → SANDBOX backend. link-cli MUST be invoked with --test (the client_hint above already includes it). Logged-in Link card will sign against Stripe test universe; no real money moves.';
+      } else if (livemode === true) {
+        rail.mode_note = 'livemode=true → LIVE backend. link-cli signs against the real Link card; real money will move.';
+      } else {
+        rail.mode_note = 'livemode missing from `extra` — backend predates Parcha-ai/parcha #6192. Default to NOT passing --test (assume live), but confirm by checking $GREP_API_BASE host.';
+      }
+    }
+
+    return rail;
   });
 
   console.error(JSON.stringify({

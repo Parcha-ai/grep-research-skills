@@ -54,18 +54,48 @@ curl -s "$GREP_API_BASE/mpp/v1/api" \
 
 If the output includes "Stripe Link", offer it as the recommended option. If only "MPP" / "tempo-pathusd", fall back to recommending the Base USDC path. If the user says "I have a Grep account", skip both and use the API key.
 
-### Step 1b: Walk through funding (only if user picked Stripe Link or Base USDC)
+### Step 1b: Detect sandbox vs live mode (Stripe Link only)
+
+**Stripe has two parallel, non-intersecting universes:** test mode (sk_test_* keys, test cards like 4242…, no real money) and live mode. An SPT minted in one won't charge in the other. `link-cli` doesn't auto-detect which mode the backend is in — the agent must pass `--test` when signing against a sandbox backend.
+
+The backend's 402 challenge surfaces this via `accepts[?(@.network=="stripe")].extra.livemode` (per Parcha-ai/parcha #6192):
+
+- `livemode: false` → sandbox backend (preview deployments, sk_test_* key). **MUST pass `--test`** to `link-cli mpp pay`.
+- `livemode: true` → live backend (production, sk_live_* key). Pay normally; no `--test`.
+- Field missing → backend predates #6192. Default to NOT passing `--test` (assume live), but cross-check `$GREP_API_BASE` (preview-api.grep.ai → likely sandbox; api.grep.ai → likely live).
+
+The script's `grep-api.js` 402 handler reads this and pre-baked the right flag into the printed `client_hint`, so an agent reading exit-3 output gets the correct invocation. For agents calling `link-cli` directly without going through the script, probe it explicitly:
+
+```bash
+LIVEMODE=$(curl -s -X POST "$GREP_API_BASE/mpp/v1/api/research" \
+  -H 'Content-Type: application/json' -d '{"question":"x","effort":"low"}' \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const s=(j.accepts||[]).find(a=>a.network==='stripe');process.stdout.write(String(s?.extra?.livemode))})")
+```
+
+`LIVEMODE` will be `"true"`, `"false"`, or `"undefined"`.
+
+### Step 1c: Walk through funding (only if user picked Stripe Link or Base USDC)
 
 **Stripe Link path:**
 
 ```bash
 npm install -g @stripe/link-cli
-link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+
+# Pick the right invocation based on Step 1b's $LIVEMODE
+if [ "$LIVEMODE" = "false" ]; then
+  link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000 --test
+else
+  link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+fi
+
 # Phone gets a push from Link — user taps "Approve $10.00".
+# (In sandbox mode, the push approves a test charge using Stripe's test card universe.)
 # CLI prints the response JSON containing `payment_intent_id: pi_link_spt_xxx`.
 # Capture it:
 export GREP_RECEIPT=pi_link_spt_xxxxxxxxxxxxxxxxx
 ```
+
+> **Why `--test` matters:** without it, a sandbox-mode backend will either reject the SPT verifier (opaque error) or — worst case — your live Link card signs an SPT against a backend that thinks it credited test cents. Real money out, test cents in. Always pass `--test` when `livemode=false`.
 
 **Base USDC path:**
 
@@ -76,6 +106,8 @@ purl prepay "$GREP_API_BASE/mpp/v1" --amount 10
 # returns Stripe pi_xxx in the response.
 export GREP_RECEIPT=pi_xxxxxxxxxxxxxxxxx
 ```
+
+(The Base USDC path doesn't need a `--test` toggle — Base Sepolia is its own test network, distinct from Base mainnet, and the gateway picks which contract to use based on the deployment's `STRIPE_SECRET_KEY` prefix.)
 
 Either path: subsequent requests use `Authorization: Receipt $GREP_RECEIPT`. First 3 `low` jobs are at 2¢ promo, then full PAYG (low=40¢, medium=$2, high=$10, build=$2).
 

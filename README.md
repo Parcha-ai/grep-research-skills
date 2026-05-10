@@ -126,6 +126,35 @@ export GREP_SURFACE=gateway GREP_RECEIPT=pi_xxx
 
 Identity is keyed by the user's Link card fingerprint (Stripe Customer `cus_xxx`). Same Link card across sessions = same Customer = balances accumulate, promo doesn't reset.
 
+#### Sandbox vs live mode (Link rail only)
+
+Stripe's test mode (sk_test_* keys, no real money) and live mode are parallel, non-intersecting universes. `link-cli` doesn't auto-detect which mode the backend is in — the agent has to pass `--test` when signing against a sandbox backend.
+
+The 402 challenge surfaces the backend's mode via `accepts[?(@.network=="stripe")].extra.livemode`:
+
+| `GREP_API_BASE` | `extra.livemode` | `link-cli` invocation |
+|---|---|---|
+| `https://preview-api.grep.ai` (preview, sk_test_*) | `false` | `link-cli mpp pay … --amount 1000 --test` |
+| `https://api.grep.ai` (production, sk_live_*) | `true` | `link-cli mpp pay … --amount 1000` |
+| (any deployment, field missing) | absent | default to no `--test` (assume live); cross-check the host |
+
+The script's 402 handler reads `extra.livemode` and bakes the right `--test` flag into the printed `client_hint`, so agents reading exit-3 output get the correct invocation. To probe explicitly:
+
+```bash
+LIVEMODE=$(curl -s -X POST "$GREP_API_BASE/mpp/v1/api/research" \
+  -H 'Content-Type: application/json' -d '{"question":"x","effort":"low"}' \
+  | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const s=(j.accepts||[]).find(a=>a.network==='stripe');process.stdout.write(String(s?.extra?.livemode))})")
+
+# Then:
+if [ "$LIVEMODE" = "false" ]; then
+  link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000 --test
+else
+  link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+fi
+```
+
+**Why `--test` matters:** without it on a sandbox backend, `link-cli` either gets an opaque verifier rejection — or, worst case, your live Link card signs an SPT against a backend that thinks it credited test cents. Real money out, test cents in. The 402 challenge also surfaces `extra.stripe_account_id` so future versions of `link-cli` can refuse to sign when logged into the wrong Stripe account.
+
 ### 2. Base USDC wallet (gateway, crypto) — fallback when Stripe Link is unavailable
 
 Sign an EIP-3009 envelope for $10 USDC on Base via [purl](https://github.com/stripe/purl):
