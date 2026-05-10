@@ -158,7 +158,7 @@ Once all steps complete, present:
 2. **The artifact URL** (Step 3's `index.html` / `slides.html`) — link with viewing instructions
 3. **Job links to all 3 steps** so the user can drill into the orientation pass or re-run Step 3 with a different artifact type via `/grep-continue`
 
-Example presentation:
+Example presentation (use `$GREP_API_BASE` for the artifact URL and `$GREP_UI_BASE` for the trace links — both auto-derived from the script's env, or fall back to the prod hosts):
 
 > "**Done.** Here's what I found and built:
 >
@@ -166,13 +166,13 @@ Example presentation:
 > [executive summary from Step 2's report]
 >
 > **Slidedeck** (job: <step3-slug>):
-> https://api.grep.ai/api/v2/research/<step3-slug>/files/slides.html
+> `${GREP_API_BASE:-https://api.grep.ai}/api/v2/research/<step3-slug>/files/slides.html`
 > Arrow keys to navigate, `?print-pdf` for PDF export.
 >
 > **Trace:**
-> - Orient: https://grep.ai/research/<step1-slug>
-> - Deep dive: https://grep.ai/research/<step2-slug>
-> - Slidedeck: https://grep.ai/research/<step3-slug>"
+> - Orient: `${GREP_UI_BASE:-https://grep.ai}/research/<step1-slug>`
+> - Deep dive: `${GREP_UI_BASE:-https://grep.ai}/research/<step2-slug>`
+> - Slidedeck: `${GREP_UI_BASE:-https://grep.ai}/research/<step3-slug>`"
 
 ## Step 7: Suggest follow-ups
 

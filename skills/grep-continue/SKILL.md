@@ -171,11 +171,11 @@ When the Monitor notification fires:
 
 1. Lead with **the chain**: "I built on the prior <topic> research:"
 2. Present the new report cleanly
-3. Link both jobs at the bottom:
+3. Link both jobs at the bottom (use `$GREP_UI_BASE`, auto-derived from `$GREP_API_BASE`, so preview / staging links render correctly):
 
    > **Trace:**
-   > - Prior research: https://grep.ai/research/<parent-slug>
-   > - This continuation: https://grep.ai/research/<new-slug>
+   > - Prior research: `${GREP_UI_BASE:-https://grep.ai}/research/<parent-slug>`
+   > - This continuation: `${GREP_UI_BASE:-https://grep.ai}/research/<new-slug>`
 
 This makes the lineage obvious for future follow-ups.
 

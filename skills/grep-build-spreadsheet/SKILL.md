@@ -118,19 +118,20 @@ When the job completes:
 node "$SCRIPTS_DIR/grep-api.js" files <slug>
 ```
 
-Find the spreadsheet — typically `index.html` (sometimes with companion `data.csv` or `data.json`). Print:
+Find the spreadsheet — typically `index.html` (sometimes with companion `data.csv` or `data.json`). Print the URL using `$GREP_API_BASE` (or fall back to `https://api.grep.ai`) so staging / preview environments work too:
 
-```
-https://api.grep.ai/api/v2/research/<slug>/files/index.html
+```bash
+API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
+echo "$API_BASE/api/v2/research/<slug>/files/index.html"
 ```
 
 Tell the user how to use it:
 
-> "Your spreadsheet is ready: https://api.grep.ai/api/v2/research/<slug>/files/index.html
+> "Your spreadsheet is ready: `$API_BASE/api/v2/research/<slug>/files/index.html`
 >
 > - **Sort** any column by clicking the header
 > - **Export CSV** — most templates include a 'Download CSV' button. If not, copy cells directly into Excel/Sheets.
-> - **Local copy:** `curl -L 'https://...' -H 'Authorization: Bearer <token>' > /tmp/spreadsheet.html && open /tmp/spreadsheet.html`"
+> - **Local copy:** `curl -L \"$API_BASE/api/v2/research/<slug>/files/index.html\" -H 'Authorization: Bearer <token>' > /tmp/spreadsheet.html && open /tmp/spreadsheet.html`"
 
 If a `data.csv` or `data.json` is in the workspace, mention it — those are easier to pipe into other tools than scraping the HTML.
 

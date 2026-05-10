@@ -2,6 +2,39 @@
 
 Give your AI agent deep research superpowers. GREP Research Skills connects Claude Code, Cowork, and OpenClaw to [GREP](https://grep.ai) — the #1 deep research engine.
 
+## Quick start (no Grep account, no API key) — Stripe Link rail
+
+Cold-start an agent against the gateway in 5 commands:
+
+```bash
+# 1. Pick the deployment (preview for early access, prod for general availability)
+export GREP_API_BASE=https://preview-api.grep.ai   # or https://api.grep.ai
+
+# 2. Discover the gateway — see enabled rails, experts, examples (free, no auth)
+curl "$GREP_API_BASE/mpp/v1/.well-known/agent-onboarding.md"
+
+# 3. Install these skills
+git clone https://github.com/Parcha-ai/grep-research-skills ~/.grep-research-skills
+~/.grep-research-skills/setup
+
+# 4. Install the funding client — Stripe Link is the recommended path for accountless agents
+npm install -g @stripe/link-cli      # push notification → user approves $10 on phone
+#   ↳ fallback: brew install stripe/purl/purl  # USDC on Base via x402 signing
+
+# 5. Fund $10 once. Stripe Link sends a push to the user's phone — they tap "Approve $10.00".
+link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+#   ↳ emits pi_xxx — capture it
+export GREP_SURFACE=gateway GREP_RECEIPT=pi_xxxxxxxxxxxxxxxx
+
+# 6. Run a job
+node ~/.grep-research-skills/scripts/grep-api.js run \
+  "What does Anthropic do?" --effort=low
+```
+
+First 3 `low` jobs are at **2¢ promo** (1¢ request + 1¢ retrieval; inference comped). After that: low=40¢, medium=$2, high=$10, build=$2. Reads always 1¢. Empty balance → 402 with both rails advertised again — pick one, top up, retry.
+
+Both rails return the same `pi_xxx` token. The agent doesn't care which rail funded the wallet — `Authorization: Receipt pi_xxx` works the same way.
+
 ## Install
 
 ```bash
@@ -23,8 +56,11 @@ That's it. Works with Claude Code, Cowork, and OpenClaw — the installer auto-d
 
 ```
 api.grep.ai
+preview-api.grep.ai
 api.descope.com
 ```
+
+(Add `preview-api.grep.ai` only if you're testing against the preview deployment via `GREP_API_BASE`.)
 
 Without this, the sandbox can't reach the GREP API or authenticate via Descope.
 
@@ -73,11 +109,37 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 
 For domain-specific work (legal, medical, patent, etc.), reach for `/grep-domain-expert`. For deliverables (decks, apps, spreadsheets), use the matching `/grep-build-*` skill. For multi-step research with a deliverable at the end, use `/grep-research-workflow`.
 
-## Two Auth Surfaces
+## Auth surfaces (three options)
 
-The script supports two authentication paths:
+The script supports three authentication paths. Pick whichever matches your situation.
 
-### v2 (default) — Descope JWT or API key
+### 1. Stripe Link wallet (gateway, push-to-phone) — RECOMMENDED for accountless agents
+
+The Quick start above. Funds via push notification to the user's phone — they tap "Approve $10.00" in the Link app on their phone, agent gets back a `pi_xxx` token, all subsequent requests authenticate with `Authorization: Receipt pi_xxx`.
+
+```bash
+npm install -g @stripe/link-cli
+link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+# → emits pi_xxx
+export GREP_SURFACE=gateway GREP_RECEIPT=pi_xxx
+```
+
+Identity is keyed by the user's Link card fingerprint (Stripe Customer `cus_xxx`). Same Link card across sessions = same Customer = balances accumulate, promo doesn't reset.
+
+### 2. Base USDC wallet (gateway, crypto) — fallback when Stripe Link is unavailable
+
+Sign an EIP-3009 envelope for $10 USDC on Base via [purl](https://github.com/stripe/purl):
+
+```bash
+brew install stripe/purl/purl
+purl prepay "$GREP_API_BASE/mpp/v1" --amount 10
+# → emits pi_xxx
+export GREP_SURFACE=gateway GREP_RECEIPT=pi_xxx
+```
+
+Identity is keyed by the recovered Ethereum address. Same wallet across sessions = same identity = balances accumulate.
+
+### 3. API key (v2, paid plans) — for users with a Grep account
 
 ```bash
 # Email OTP (interactive)
@@ -87,26 +149,11 @@ The script supports two authentication paths:
 node ~/.grep-research-skills/scripts/auth.js set-api-key grp_xxx
 ```
 
-Sessions are stored in `~/.grep/session.json` and auto-refresh. Bills against your subscription tier.
+Sessions are stored in `~/.grep/session.json` and auto-refresh. Bills against your subscription tier (Free / Pro / Ultra / PAYG).
 
-### Gateway PAYG — wallet receipt
+### Which rails are enabled?
 
-For agents with no Grep account. Pay-as-you-go via x402 / Stripe:
-
-```bash
-# 1. Fund a wallet (one-time)
-purl prepay https://api.grep.ai/mpp/v1 --amount 10
-# Returns a Stripe pi_xxx receipt
-
-# 2. Export the receipt
-export GREP_SURFACE=gateway
-export GREP_RECEIPT=pi_xxxxxxxxxxxxxxxx
-
-# 3. Use as normal
-node ~/.grep-research-skills/scripts/grep-api.js run "What is Anthropic?" --effort=low
-```
-
-Each request debits from the wallet's `bonus_credits`. Empty balance → 402 → top up with `purl prepay` again.
+Run `node scripts/grep-api.js discovery` — the response's `payment_rails[]` array lists which rails the deployment supports. Stripe Link is gated server-side on `MPP_GATEWAY_LINK_RAIL_ENABLED=true`; if your deployment hasn't enabled it, only Base USDC will be advertised.
 
 ## Direct CLI Use
 
@@ -123,16 +170,23 @@ node scripts/grep-api.js wallet 0xabc...                    # gateway balance ch
 
 ## Discovery
 
-Both API surfaces publish their contracts:
+Both API surfaces publish their contracts. Set `GREP_API_BASE` once and use it everywhere:
 
 ```bash
-curl https://api.grep.ai/openapi.json                       # v2 OpenAPI
-curl https://api.grep.ai/api/v2/experts                     # 27-expert list
-curl https://api.grep.ai/.well-known/agent-onboarding.md    # markdown agent guide
+export GREP_API_BASE=https://api.grep.ai             # production
+# OR
+export GREP_API_BASE=https://preview-api.grep.ai     # preview / staging
 
-curl https://api.grep.ai/mpp/v1/api                         # gateway discovery (wallet/x402)
-curl https://api.grep.ai/mpp/v1/api/experts                 # same 27-expert list
+curl "$GREP_API_BASE/openapi.json"                       # v2 OpenAPI
+curl "$GREP_API_BASE/api/v2/experts"                     # 27-expert list
+curl "$GREP_API_BASE/.well-known/agent-onboarding.md"    # markdown agent guide
+
+curl "$GREP_API_BASE/mpp/v1/api"                         # gateway discovery — lists payment_rails, free_tier, examples
+curl "$GREP_API_BASE/mpp/v1/api/experts"                 # same 27-expert list
+curl "$GREP_API_BASE/mpp/v1/.well-known/agent-onboarding.md"  # canonical funding bootstrap
 ```
+
+**Agents bootstrapping cold** should fetch `$GREP_API_BASE/mpp/v1/api` (free, no auth) for the live experts list, enabled payment rails, free-tier rules, and 8 example research bodies. The `payment_rails[]` array tells you whether Stripe Link is enabled on this deployment.
 
 This repo also publishes a [skill manifest](.well-known/skill-manifest.json) for agent discovery.
 

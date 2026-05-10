@@ -146,21 +146,23 @@ When the Monitor notification arrives saying the job completed:
 
 2. **Find the entrypoint** — usually `index.html`, sometimes `app.html` or `<topic>.html`.
 
-3. **Print the URL** — use the v2 file path:
+3. **Print the URL** — derive the API base from env so staging / preview environments work:
 
+   ```bash
+   API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
+   # v2 surface:
+   echo "$API_BASE/api/v2/research/<slug>/files/index.html"
+   # OR gateway equivalent (same workspace, different auth):
+   echo "$API_BASE/mpp/v1/api/research/<slug>/files/index.html"
    ```
-   https://api.grep.ai/api/v2/research/<slug>/files/index.html
-   ```
-
-   (Gateway equivalent: `https://api.grep.ai/mpp/v1/api/research/<slug>/files/index.html`.)
 
 4. **Tell the user how to view:**
 
-   > "Your app is ready: https://api.grep.ai/api/v2/research/<slug>/files/index.html
+   > "Your app is ready: `$API_BASE/api/v2/research/<slug>/files/index.html`
    >
    > To preview locally:
    > ```
-   > curl -L 'https://api.grep.ai/api/v2/research/<slug>/files/index.html' \
+   > curl -L "$API_BASE/api/v2/research/<slug>/files/index.html" \
    >   -H 'Authorization: Bearer <token>' \
    >   > /tmp/app.html && open /tmp/app.html
    > ```"

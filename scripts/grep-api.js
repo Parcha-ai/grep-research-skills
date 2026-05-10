@@ -24,6 +24,13 @@ const SESSION_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.gr
 const DESCOPE_PROJECT_ID = 'P35S8vZ7BYoDSOJVaYbIDRZObJq6';
 const DESCOPE_BASE_URL = 'https://api.descope.com';
 
+// UI host derivation — for printing user-facing https://grep.ai/research/<slug> links.
+//   https://api.grep.ai           → https://grep.ai
+//   https://preview-api.grep.ai   → https://preview.grep.ai
+// Override via GREP_UI_BASE if the heuristic doesn't match the deployment.
+const GREP_UI_BASE = process.env.GREP_UI_BASE
+  || GREP_API_BASE.replace('://api.', '://').replace('://preview-api.', '://preview.');
+
 // Surface selection:
 //   GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth
 //   GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (GREP_RECEIPT=pi_xxx)
@@ -120,8 +127,11 @@ async function buildAuthHeaders() {
   if (SURFACE === 'gateway') {
     if (!process.env.GREP_RECEIPT) {
       console.error('[grep-api] GREP_SURFACE=gateway requires GREP_RECEIPT=pi_xxx.');
-      console.error('[grep-api] Fund a wallet first: `purl prepay https://api.grep.ai/mpp/v1 --amount 10`');
-      console.error('[grep-api] then export GREP_RECEIPT=<the pi_xxx the verifier prints>.');
+      console.error('[grep-api] Fund a wallet first (Stripe Link is the recommended path):');
+      console.error(`[grep-api]   npm i -g @stripe/link-cli && link-cli mpp pay ${GREP_API_BASE}/mpp/v1/api/research --amount 1000`);
+      console.error('[grep-api] OR Base USDC:');
+      console.error(`[grep-api]   purl prepay ${GREP_API_BASE}/mpp/v1 --amount 10`);
+      console.error('[grep-api] Then export GREP_RECEIPT=<the pi_xxx the verifier prints>.');
       process.exit(1);
     }
     return { Authorization: `Receipt ${process.env.GREP_RECEIPT}` };
@@ -131,13 +141,57 @@ async function buildAuthHeaders() {
 }
 
 // Print a 402 payment-required body in a clean shape, then exit 3.
+//
+// The backend (Parcha-ai/parcha #6191) advertises BOTH funding rails in
+// `accepts[]` when MPP_GATEWAY_LINK_RAIL_ENABLED=true on the server:
+//
+//   1. Stripe Link (push-to-phone)  — network="stripe",      asset="link-spt"
+//   2. Base USDC (EIP-3009 sig)     — network="base-sepolia", asset=<usdc>
+//
+// We parse both and emit a `rails[]` array with a copy-paste `client_hint` for
+// each, so the agent reading exit-3 output sees exactly which CLI to run.
 async function handle402(res) {
   const eb = await res.json().catch(() => ({}));
+  const accepts = Array.isArray(eb.accepts) ? eb.accepts : [];
+  const resourceUrl = eb.error?.payment?.resource || res.url || '';
+
+  const rails = accepts.map(a => {
+    // For the Base USDC rail, maxAmountRequired is in 6-decimal USDC units
+    // (cents * 10000). For the Link rail, it's already cents.
+    const cents = a.network === 'stripe'
+      ? Number(a.maxAmountRequired)
+      : Math.round(Number(a.maxAmountRequired) / 10000);
+    const dollars = (cents / 100).toFixed(2);
+
+    const clientHint = a.network === 'stripe'
+      ? `npm i -g @stripe/link-cli && link-cli mpp pay ${resourceUrl} --amount ${cents}`
+      : `purl prepay ${resourceUrl.replace(/\/api\/?$/, '').replace(/\/research$/, '')} --amount ${dollars}`;
+
+    return {
+      rail: a.network === 'stripe' ? 'stripe-link' : 'base-usdc',
+      network: a.network,
+      asset: a.asset,
+      cents,
+      challenge_id: a.extra?.challenge_id || null,
+      client_hint: clientHint,
+      ux_note: a.network === 'stripe'
+        ? 'Push notification on user phone via Link app — tap Approve $X.XX. Recommended for accountless agents.'
+        : 'Sign EIP-3009 envelope with a USDC wallet on Base. Recommended when Stripe Link is unavailable.',
+    };
+  });
+
   console.error(JSON.stringify({
     error: 'payment_required',
-    message: eb.error?.message || eb.detail || 'Balance insufficient — top up required',
-    payment: eb.error?.payment || eb.accepts || null,
-    minimum_topup_cents: eb.error?.payment?.minimum_topup_cents || 1000,
+    code: eb.error?.code || 'payment_required',
+    message: eb.error?.message || eb.detail || 'Funding required — pick a rail below.',
+    minimum_topup_cents: eb.error?.payment?.minimum_topup_cents || rails[0]?.cents || 1000,
+    rails,
+    legacy_payment: eb.error?.payment || null,
+    note: rails.length === 0
+      ? 'No accepts[] in the 402 body — server may be returning a non-x402 402.'
+      : (rails.length === 1
+          ? `Only one rail offered (${rails[0].rail}). The deployment may have MPP_GATEWAY_LINK_RAIL_ENABLED=false.`
+          : 'Both rails offered — pick whichever your environment supports. Stripe Link is the recommended demo path.'),
   }, null, 2));
   process.exit(3);
 }
@@ -207,7 +261,7 @@ async function getResult(jobIdOrSlug, options = {}) {
     const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
     const report = extractReport(result);
     const slug = result.slug || jobIdOrSlug;
-    const jobUrl = `https://grep.ai/research/${slug}`;
+    const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
     if (report) {
       console.log(`Status: ${result.status}\n\n${report}`);
       console.log(`\n---\n[View full report on GREP](${jobUrl})`);
@@ -254,7 +308,7 @@ async function getResult(jobIdOrSlug, options = {}) {
     if (status === 'completed' || status === 'complete') {
       process.stderr.write(`[result] Completed in ${elapsed}s (${attempt} polls)\n`);
       const report = extractReport(result);
-      const jobUrl = `https://grep.ai/research/${slug}`;
+      const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
       if (report) {
         console.log(`Status: ${result.status}\n\n${report}`);
         console.log(`\n---\n[View full report on GREP](${jobUrl})`);
@@ -279,7 +333,7 @@ async function getResult(jobIdOrSlug, options = {}) {
   // `slug` was last set inside the loop to the server-returned pretty slug;
   // the timeout branch reuses that instead of redeclaring it.
   process.stderr.write(`[result] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
-  const jobUrl = `https://grep.ai/research/${slug}`;
+  const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
   console.log(JSON.stringify({
     status: 'timeout',
     slug,
@@ -492,7 +546,7 @@ async function runResearch(query, options = {}) {
     if (status === 'completed' || status === 'complete') {
       process.stderr.write(`[research] Completed in ${elapsed}s (${attempt} polls)\n`);
       const report = extractReport(result);
-      const jobUrl = `https://grep.ai/research/${slug}`;
+      const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
       if (report) {
         console.log(report);
         console.log(`\n---\n[View full report on GREP](${jobUrl})`);
@@ -515,7 +569,7 @@ async function runResearch(query, options = {}) {
 
   // 3. Timeout — leave the job running, caller can resume via status/result
   process.stderr.write(`[research] Timed out after ${maxWaitSeconds}s. Job still running.\n`);
-  const jobUrl = `https://grep.ai/research/${slug}`;
+  const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
   console.log(JSON.stringify({
     status: 'timeout',
     job_id: jobId,
@@ -703,17 +757,28 @@ switch (command) {
     console.error('  --context="<text>"                   Inline context string');
     console.error('');
     console.error('Env:');
-    console.error('  GREP_API_BASE              Override the API host (default https://api.grep.ai)');
+    console.error('  GREP_API_BASE              API host (default https://api.grep.ai; use https://preview-api.grep.ai for preview)');
+    console.error('  GREP_UI_BASE               UI host for printed report links (auto-derived from GREP_API_BASE; override if needed)');
     console.error('  GREP_SURFACE               v2 (default) or gateway');
     console.error('  GREP_RECEIPT               Stripe pi_xxx receipt (required when surface=gateway)');
     console.error('  GREP_API_BASE_PATH         Override the base path (rare)');
     console.error('');
+    console.error('Gateway funding (one signature funds many requests; first 3 low jobs at 2¢ promo, then full PAYG):');
+    console.error('  Stripe Link (push notification → phone approval) — RECOMMENDED for accountless agents:');
+    console.error('    npm i -g @stripe/link-cli');
+    console.error('    link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000');
+    console.error('    # → emits pi_xxx — export GREP_RECEIPT=pi_xxx');
+    console.error('  Base USDC (EIP-3009 signature) — fallback when Stripe Link is unavailable:');
+    console.error('    purl prepay $GREP_API_BASE/mpp/v1 --amount 10');
+    console.error('    # → emits pi_xxx — export GREP_RECEIPT=pi_xxx');
+    console.error('');
     console.error('Gateway pricing note:');
     console.error('  Each GET that touches user data costs 1¢ (poll, files, timeline).');
     console.error('  A 5-min `run` poll loop = ~20 polls × 1¢ = 20¢ on top of the job cost.');
-    console.error('  Top up with: purl prepay https://api.grep.ai/mpp/v1 --amount 10');
+    console.error('  Run `discovery` to see which rails the deployment offers.');
     console.error('');
     console.error('Exit codes:');
-    console.error('  0 success   1 error/auth   2 timeout (job still running)   3 payment_required');
+    console.error('  0 success   1 error/auth   2 timeout (job still running)');
+    console.error('  3 payment_required (initial fund OR receipt expired/evicted; pick a rail and retry)');
     process.exit(1);
 }

@@ -153,4 +153,4 @@ When the Monitor notification arrives:
 
 ## Drift check (when you suspect the catalog is stale)
 
-If a curl against `https://api.grep.ai/api/v2/experts` returns an ID that's not in `resources/experts.md` (or vice versa), the snapshot has drifted. Open an issue or PR to refresh — the `.github/workflows/sync-experts.yml` workflow (PR 10) automates this nightly.
+If a curl against `$GREP_API_BASE/api/v2/experts` (defaults to `https://api.grep.ai/api/v2/experts`) returns an ID that's not in `resources/experts.md` (or vice versa), the snapshot has drifted. Open an issue or PR to refresh — the `.github/workflows/sync-experts.yml` workflow automates this nightly.

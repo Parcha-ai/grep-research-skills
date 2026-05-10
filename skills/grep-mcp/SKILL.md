@@ -19,32 +19,65 @@ If the user's request is "do this one piece of research now," skip MCP setup —
 
 ## Prerequisites
 
-Either:
-- A Grep API key (`grp_xxx`) from https://grep.ai/api-keys — recommended for human users
-- A funded wallet (`pi_xxx` receipt from `purl prepay`) — for accountless agents on the gateway PAYG flow
+One of three auth modes:
 
-The skill asks which auth mode to use; both shapes are documented below.
+- **Stripe Link wallet** (`pi_xxx` from `link-cli mpp pay`) — push notification → user approves $10 on phone. **RECOMMENDED for accountless agents.**
+- **Base USDC wallet** (`pi_xxx` from `purl prepay`) — fallback for agents that already have a Base USDC wallet, or when Stripe Link is unavailable.
+- **Grep API key** (`grp_xxx` from https://grep.ai/api-keys) — for users on a paid plan.
 
-## Resolve the script path
+The skill asks which auth mode to use; all three shapes are documented below.
+
+## Resolve the script path + API base
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
+# Pick the deployment — preview for early-access, prod for general availability
+export GREP_API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
 ```
 
 ## Step 1: Pick the auth mode
 
-Use **AskUserQuestion** with two options:
+Use **AskUserQuestion** with three options, **Link first** (it's the demo path):
 
-- **API key (v2, recommended)** — paste a `grp_xxx` from https://grep.ai/api-keys. Routes to the canonical v2 surface. No per-call wallet debits.
-- **Wallet receipt (gateway, PAYG)** — for agents with no Grep account. Pay-as-you-go via `Authorization: Receipt pi_xxx`. Each request debits from a prepaid balance.
+- **Stripe Link wallet (RECOMMENDED for accountless agents)** — push notification → user approves $10 on phone. Run `npm i -g @stripe/link-cli` then `link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000` to fund. Emits `pi_xxx`. **Identity stable across sessions** via Stripe Customer keyed by Link card fingerprint.
+- **Base USDC wallet (fallback)** — for agents that already have a Base USDC wallet or where Stripe Link isn't available. Run `brew install stripe/purl/purl` then `purl prepay $GREP_API_BASE/mpp/v1 --amount 10`. Emits `pi_xxx`. Identity = recovered Ethereum address.
+- **Grep API key (paid plans)** — paste a `grp_xxx` from https://grep.ai/api-keys. Routes to the canonical v2 surface. Bills against the user's subscription tier (no per-call wallet debits).
 
-If the user picks wallet but doesn't have a receipt yet, walk them through funding:
+### Step 1a: Check which gateway rails are enabled
+
+Before recommending Stripe Link, verify the deployment supports it. Stripe Link is gated server-side on `MPP_GATEWAY_LINK_RAIL_ENABLED=true`:
 
 ```bash
-purl prepay https://api.grep.ai/mpp/v1 --amount 10
+curl -s "$GREP_API_BASE/mpp/v1/api" \
+  | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);console.log("Rails enabled:",(j.payment_rails||[]).map(r=>r.name).join(", ")||"none")})'
 ```
 
-This signs an EIP-3009 envelope for $10 USDC, the verifier credits 1000 cents (`bonus_credits`) on their wallet, and returns a Stripe `pi_xxx` they keep as the bearer token.
+If the output includes "Stripe Link", offer it as the recommended option. If only "MPP" / "tempo-pathusd", fall back to recommending the Base USDC path. If the user says "I have a Grep account", skip both and use the API key.
+
+### Step 1b: Walk through funding (only if user picked Stripe Link or Base USDC)
+
+**Stripe Link path:**
+
+```bash
+npm install -g @stripe/link-cli
+link-cli mpp pay "$GREP_API_BASE/mpp/v1/api/research" --amount 1000
+# Phone gets a push from Link — user taps "Approve $10.00".
+# CLI prints the response JSON containing `payment_intent_id: pi_link_spt_xxx`.
+# Capture it:
+export GREP_RECEIPT=pi_link_spt_xxxxxxxxxxxxxxxxx
+```
+
+**Base USDC path:**
+
+```bash
+brew install stripe/purl/purl
+purl prepay "$GREP_API_BASE/mpp/v1" --amount 10
+# Signs an EIP-3009 envelope, server credits 1000 cents (`bonus_credits`),
+# returns Stripe pi_xxx in the response.
+export GREP_RECEIPT=pi_xxxxxxxxxxxxxxxxx
+```
+
+Either path: subsequent requests use `Authorization: Receipt $GREP_RECEIPT`. First 3 `low` jobs are at 2¢ promo, then full PAYG (low=40¢, medium=$2, high=$10, build=$2).
 
 ## Step 2: Locate or create `.mcp.json`
 
@@ -65,6 +98,8 @@ If `.mcp.json` already has an `mcpServers.grep` entry, **AskUserQuestion** befor
 
 Use Read + Write (not raw shell `jq`, which may not be installed). Read the file, parse, splice in the new entry, write back.
 
+All three shapes use the deployment's `$GREP_API_BASE` for the URL — make sure to substitute the actual host (e.g. `https://api.grep.ai` for prod, `https://preview-api.grep.ai` for preview), not the literal `$GREP_API_BASE` string.
+
 ### API key (v2) shape
 
 ```json
@@ -81,7 +116,9 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
 }
 ```
 
-### Wallet receipt (gateway) shape
+### Stripe Link or Base USDC wallet receipt (gateway) shape
+
+Both rails produce a `pi_xxx` token used the same way:
 
 ```json
 {
@@ -98,23 +135,24 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
 ```
 
 **Critical rules for the wallet shape:**
-- The wallet identity is implicit in the receipt — never add an `X-Wallet-Address` header alongside.
+- The wallet identity is implicit in the receipt — never add an `X-Wallet-Address` header alongside (the legacy self-claim path was removed in backend PR #6191 for security).
 - The receipt is bare `pi_xxx`, no `tempo:` prefix, no quotes around it inside the header value.
+- Stripe Link `pi_xxx` and Base USDC `pi_xxx` are interchangeable from the agent's perspective — same wire format, same auth scope.
 
 ## Step 4: Verify the server responds
 
 `curl` the chosen MCP endpoint with a `tools/list` JSON-RPC call. Parse the response with Node (consistent with Step 3's "don't assume jq is installed" note).
 
-First set the URL + auth header to match whichever path you took in Steps 1-3:
+First set the URL + auth header to match whichever path you took in Steps 1-3 (substitute `$GREP_API_BASE` with the actual host):
 
 ```bash
 # API key (v2) path:
-MCP_URL="https://api.grep.ai/api/v2/mcp"
+MCP_URL="$GREP_API_BASE/api/v2/mcp"
 AUTH_HEADER="Bearer grp_xxx_USER_PASTED_KEY"
 MIN_TOOLS=4   # v2 surface omits wallet_balance (gateway-only tool)
 
-# OR wallet receipt (gateway) path:
-MCP_URL="https://api.grep.ai/mpp/v1/mcp"
+# OR wallet receipt (gateway) path — same shape for Stripe Link AND Base USDC:
+MCP_URL="$GREP_API_BASE/mpp/v1/mcp"
 AUTH_HEADER="Receipt pi_xxx_USER_PASTED_RECEIPT"
 MIN_TOOLS=5   # gateway exposes all 5 tools including wallet_balance
 ```
@@ -134,9 +172,12 @@ Expected tool list:
 - **Gateway (`/mpp/v1/mcp`)** — 5 tools: the four above + `wallet_balance` (gateway-only, since wallet credits don't apply on v2)
 
 If the curl returns:
-- **401** — token wrong. API key path: re-check `grp_xxx`. Wallet path: receipt expired or invalid.
-- **402** — wallet balance empty. Run `purl prepay https://api.grep.ai/mpp/v1 --amount 10` again, replace the `pi_xxx` in `.mcp.json`.
-- **404** — wrong URL. v2 = `/api/v2/mcp`, gateway = `/mpp/v1/mcp`. Don't mix them.
+- **401** — token wrong. API key path: re-check `grp_xxx`. Wallet path: receipt expired or invalid (Redis cache evicts after 90 days; if the response body says `wallet_identity_not_recovered`, re-fund and replace the `pi_xxx`).
+- **402** — wallet balance empty. Re-fund:
+  - Stripe Link: `link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000`
+  - Base USDC: `purl prepay $GREP_API_BASE/mpp/v1 --amount 10`
+  Either way, replace the `pi_xxx` in `.mcp.json`.
+- **404** — wrong URL. v2 = `/api/v2/mcp`, gateway = `/mpp/v1/mcp`. Don't mix them. Also check `$GREP_API_BASE` is the right deployment (api.grep.ai vs preview-api.grep.ai).
 - **5xx** — backend issue, not config. Wait + retry.
 
 ## Step 5: Tell the user to restart
@@ -162,7 +203,11 @@ These compose with the other Grep skills naturally: an agent can use the MCP too
 - **`/mcp` shows `grep` but `tools/list` is empty:** transport mismatch. Confirm `"transport": "http"` exactly (not `"stream"`, not `"sse"`).
 - **`grep` not listed in `/mcp` after restart:** `.mcp.json` not loaded. Check it's in `$PWD` (the project root, not `~`).
 - **Tool calls return 401 mid-conversation:** API key revoked or rotated. Re-issue at https://grep.ai/api-keys, replace in `.mcp.json`, restart.
-- **Wallet path: every tool call returns 402:** balance hit zero. Re-run `purl prepay https://api.grep.ai/mpp/v1 --amount 10`, replace the `pi_xxx`, restart.
+- **Wallet path: every tool call returns 402 with `wallet_identity_not_recovered`:** the `pi_xxx` was once valid but the gateway's Redis cache evicted it (90-day TTL) and Stripe metadata lookup failed. Re-fund (`link-cli mpp pay ...` or `purl prepay ...`), replace the `pi_xxx`, restart.
+- **Wallet path: every tool call returns 402 with `insufficient_credits`:** balance hit zero. Re-fund:
+  - Stripe Link: `link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000`
+  - Base USDC: `purl prepay $GREP_API_BASE/mpp/v1 --amount 10`
+  Replace the `pi_xxx` in `.mcp.json`, restart.
 
 ## Anti-patterns
 
