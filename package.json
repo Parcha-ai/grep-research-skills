@@ -32,7 +32,8 @@
     "skills/",
     "resources/",
     "setup",
-    ".claude-plugin/"
+    ".claude-plugin/",
+    ".well-known/"
   ],
   "engines": {
     "node": ">=18"
