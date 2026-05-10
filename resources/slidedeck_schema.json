@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GrepSlidedeck",
+  "type": "object",
+  "required": ["title", "subtitle", "slides"],
+  "properties": {
+    "title": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "author": { "type": "string" },
+    "theme": { "type": "string", "enum": ["light", "dark", "minimalist", "corporate"], "default": "light" },
+    "slides": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["heading", "body"],
+        "properties": {
+          "heading": { "type": "string" },
+          "subheading": { "type": "string" },
+          "body": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+          "layout": { "type": "string", "enum": ["title", "bullets", "two-column", "image", "chart", "quote"], "default": "bullets" },
+          "image_caption": { "type": "string" },
+          "chart": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["bar", "line", "pie", "scatter"] },
+              "data": { "type": "array", "items": {} },
+              "x_label": { "type": "string" },
+              "y_label": { "type": "string" }
+            }
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "url": { "type": "string", "format": "uri" },
+                "title": { "type": "string" },
+                "accessed": { "type": "string", "format": "date" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
