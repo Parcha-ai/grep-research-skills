@@ -111,7 +111,14 @@ For domain-specific work (legal, medical, patent, etc.), reach for `/grep-domain
 
 ## Auth surfaces (three options)
 
-The script supports three authentication paths. Pick whichever matches your situation.
+The script supports three authentication paths. **The `/grep-mcp` skill auto-selects** based on signals it can detect — it should rarely have to ask. The order:
+
+1. If `~/.grep/session.json` exists (Grep account / API key already configured), use **path 3** silently.
+2. Otherwise if the deployment advertises Stripe Link in its `/mpp/v1/api` discovery doc, use **path 1** silently.
+3. Otherwise fall back to **path 2** (Base USDC) silently.
+4. Only ask the user when 1-3 are all impossible (offline, no rails advertised, no session).
+
+The three paths below are documented for reference and for users invoking `scripts/grep-api.js` directly outside the skill.
 
 ### 1. Stripe Link wallet (gateway, push-to-phone) — RECOMMENDED for accountless agents
 

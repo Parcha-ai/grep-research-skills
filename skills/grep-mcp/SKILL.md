@@ -19,13 +19,11 @@ If the user's request is "do this one piece of research now," skip MCP setup —
 
 ## Prerequisites
 
-One of three auth modes:
+The skill picks an auth mode automatically. Three options exist:
 
-- **Stripe Link wallet** (`pi_xxx` from `link-cli mpp pay`) — push notification → user approves $10 on phone. **RECOMMENDED for accountless agents.**
-- **Base USDC wallet** (`pi_xxx` from `purl prepay`) — fallback for agents that already have a Base USDC wallet, or when Stripe Link is unavailable.
-- **Grep API key** (`grp_xxx` from https://grep.ai/api-keys) — for users on a paid plan.
-
-The skill asks which auth mode to use; all three shapes are documented below.
+- **Stripe Link wallet** (`pi_xxx` from `link-cli mpp pay`) — push notification → user approves $10 on phone. **Default for accountless agents.**
+- **Base USDC wallet** (`pi_xxx` from `purl prepay`) — agents with an existing Base USDC wallet, or when Stripe Link isn't available on the deployment.
+- **Grep API key / session** (`grp_xxx` or Descope session) — when the user already has a Grep account.
 
 ## Resolve the script path + API base
 
@@ -35,26 +33,48 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 export GREP_API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
 ```
 
-## Step 1: Pick the auth mode
+## Step 1: Auto-select the auth mode (do NOT prompt unless detection is inconclusive)
 
-Use **AskUserQuestion** with three options, **Link first** (it's the demo path):
+**Default to Stripe Link silently. Only ask the user when there is hard evidence of a competing auth.** Forcing an `AskUserQuestion` when no signal exists wastes a user turn — most agents land here cold and "what auth should I use?" is exactly the question they're hoping the skill answers for them.
 
-- **Stripe Link wallet (RECOMMENDED for accountless agents)** — push notification → user approves $10 on phone. Run `npm i -g @stripe/link-cli` then `link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000` to fund. Emits `pi_xxx`. **Identity stable across sessions** via Stripe Customer keyed by Link card fingerprint.
-- **Base USDC wallet (fallback)** — for agents that already have a Base USDC wallet or where Stripe Link isn't available. Run `brew install stripe/purl/purl` then `purl prepay $GREP_API_BASE/mpp/v1 --amount 10`. Emits `pi_xxx`. Identity = recovered Ethereum address.
-- **Grep API key (paid plans)** — paste a `grp_xxx` from https://grep.ai/api-keys. Routes to the canonical v2 surface. Bills against the user's subscription tier (no per-call wallet debits).
-
-### Step 1a: Check which gateway rails are enabled
-
-Before recommending Stripe Link, verify the deployment supports it. Stripe Link is gated server-side on `MPP_GATEWAY_LINK_RAIL_ENABLED=true`:
+### Step 1a: Probe for existing Grep credentials
 
 ```bash
-curl -s "$GREP_API_BASE/mpp/v1/api" \
-  | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);console.log("Rails enabled:",(j.payment_rails||[]).map(r=>r.name).join(", ")||"none")})'
+HAS_SESSION=0
+HAS_API_KEY=0
+if [ -f "$HOME/.grep/session.json" ]; then
+  HAS_SESSION=1
+  # API-key sessions have an `apiKey` field; OTP sessions have a `sessionJwt`.
+  if node -e "const s=JSON.parse(require('fs').readFileSync('$HOME/.grep/session.json','utf8'));process.exit(s.apiKey?0:1)" 2>/dev/null; then
+    HAS_API_KEY=1
+  fi
+fi
+# Also accept an explicit env-var hint
+[ -n "$GREP_API_KEY" ] && HAS_API_KEY=1
 ```
 
-If the output includes "Stripe Link", offer it as the recommended option. If only "MPP" / "tempo-pathusd", fall back to recommending the Base USDC path. If the user says "I have a Grep account", skip both and use the API key.
+### Step 1b: Check which gateway rails the deployment offers
 
-### Step 1b: Detect sandbox vs live mode (Stripe Link only)
+```bash
+RAILS=$(curl -s "$GREP_API_BASE/mpp/v1/api" \
+  | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);process.stdout.write((j.payment_rails||[]).map(r=>r.name).join(","))})')
+# RAILS is a comma-joined list like "MPP,Stripe Link" or "MPP"
+HAS_LINK=0
+[[ "$RAILS" == *"Stripe Link"* ]] && HAS_LINK=1
+```
+
+### Step 1c: Decision matrix (silent fallthrough — only ask if ambiguous)
+
+Apply in order. **Stop at the first match. Do NOT ask the user unless the last branch is reached.**
+
+1. **`HAS_API_KEY=1` OR `HAS_SESSION=1`** → user is already a Grep customer. Use the existing session/key. Skip the wallet path entirely. Proceed silently to Step 2 with the API-key shape.
+2. **`HAS_LINK=1`** (the default path for new agents on any deployment that enabled Stripe Link) → silently pick Stripe Link. Walk through Step 1d (funding) without asking.
+3. **`HAS_LINK=0` AND `RAILS` includes `MPP`** → silently pick Base USDC. Walk through Step 1d.
+4. **`HAS_LINK=0` AND `RAILS` empty / unreachable** → genuinely ambiguous. NOW use **AskUserQuestion** with two options: "Use Grep API key (I have an account)" vs "Set GREP_API_BASE manually to a working gateway". This branch should be rare — usually means the user is offline or hit a wrong host.
+
+**Anti-pattern: don't ask the user "which auth method?" as the first move.** If detection in 1a-1b succeeds, the answer is already determined. Ask only when there's genuinely no signal — and even then, ask "I see no rails — should I retry or use an API key?" not "which of three options?". Phrasing matters: agents acting on behalf of accountless users shouldn't surface internal auth choices unless they have to.
+
+### Step 1d: Detect sandbox vs live mode (Stripe Link only)
 
 **Stripe has two parallel, non-intersecting universes:** test mode (sk_test_* keys, test cards like 4242…, no real money) and live mode. An SPT minted in one won't charge in the other. `link-cli` doesn't auto-detect which mode the backend is in — the agent must pass `--test` when signing against a sandbox backend.
 
@@ -74,7 +94,7 @@ LIVEMODE=$(curl -s -X POST "$GREP_API_BASE/mpp/v1/api/research" \
 
 `LIVEMODE` will be `"true"`, `"false"`, or `"undefined"`.
 
-### Step 1c: Walk through funding (only if user picked Stripe Link or Base USDC)
+### Step 1e: Walk through funding (skip if Step 1c selected the API-key path)
 
 **Stripe Link path:**
 
