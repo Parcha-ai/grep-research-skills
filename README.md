@@ -12,12 +12,23 @@ That's it. Works with Claude Code, Cowork, and OpenClaw — the installer auto-d
 
 **Requirements:** Node.js 18+
 
-### Alternative: Cowork
+### Alternative: Cowork / Claude.ai
+
+For Cowork and Claude.ai, GREP is packaged as a **single `/research` skill** (instead of 8 individual skills). One router skill handles everything — it reads the right reference file based on your intent.
 
 1. Download the latest zip from [Releases](https://github.com/parcha-ai/grep-research-skills/releases/latest)
 2. In Cowork, go to **Settings → Plugins** and click **Add Plugin**
 3. Upload `grep-research-skills-v0.1.0.zip`
-4. The skills will appear in your org — all team members get access
+4. The `/research` skill appears in your org — all team members get access
+
+**Why one skill?** Claude Code discovers skills as individual symlinks, so 8 skills = better auto-triggering. Cowork/Claude.ai loads skills from a zip, where a single well-described router skill with reference files is more practical and avoids cluttering the skill list.
+
+**Building the zip from source:**
+
+```bash
+node bin/build-cowork-zip.js
+# → dist/grep-research-skills-v0.1.0.zip
+```
 
 **Required: Allow network access.** In your Cowork org settings under **Code execution → Allow network egress**, add these domains to the allowlist:
 
@@ -42,6 +53,8 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 
 ## What You Get
 
+### Claude Code (8 individual skills)
+
 | Skill | Time | Description |
 |-------|------|-------------|
 | `/quick-research <topic>` | ~25s | Fast fact check — version lookups, API endpoint checks, quick pre-code sanity checks |
@@ -52,6 +65,12 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 | `/grep-login` | — | Authenticate with your GREP account (email OTP) |
 | `/grep-upgrade` | — | Choose or change your subscription plan (Free / Pro / Ultra / PAYG) |
 | `/grep-status` | — | Check account status and recent jobs |
+
+### Cowork / Claude.ai (single consolidated skill)
+
+| Skill | Description |
+|-------|-------------|
+| `/research` | All features in one skill — routes to the right workflow (deep, quick, ultra, plan, skill-creator, login, upgrade, status) based on what you ask for |
 
 ## Getting Started
 
@@ -102,7 +121,7 @@ grep-research-skills/
 ├── .claude-plugin/
 │   ├── plugin.json               # Claude Code plugin manifest
 │   └── marketplace.json          # Claude Code marketplace listing
-├── skills/
+├── skills/                       # Claude Code: 8 individual skills
 │   ├── research/SKILL.md         # Deep research (~5 min)
 │   ├── quick-research/SKILL.md   # Fast fact check (~25s)
 │   ├── ultra-research/SKILL.md   # Exhaustive research (up to 1 hr)
@@ -111,12 +130,27 @@ grep-research-skills/
 │   ├── grep-login/SKILL.md       # Authentication
 │   ├── grep-upgrade/SKILL.md     # Plan selection & Stripe checkout
 │   └── grep-status/SKILL.md      # Status & job checking
+├── dist/cowork/                  # Cowork/Claude.ai: single consolidated skill
+│   └── research/
+│       ├── SKILL.md              # Router — routes intent to reference files
+│       ├── references/           # Workflow details for each intent
+│       │   ├── deep.md
+│       │   ├── quick.md
+│       │   ├── ultra.md
+│       │   ├── plan.md
+│       │   ├── skill-creator.md
+│       │   ├── login.md
+│       │   ├── upgrade.md
+│       │   └── status.md
+│       └── scripts/              # Bundled at build time by build-cowork-zip.js
 ├── scripts/
 │   ├── auth.js                   # Descope OTP headless auth
 │   ├── grep-api.js               # GREP API client
-│   └── billing.js                # Billing & Stripe checkout client
+│   ├── billing.js                # Billing & Stripe checkout client
+│   └── update-check.js           # Auto-update checker
 ├── bin/
-│   └── install.js                # npx installer
+│   ├── install.js                # npx installer
+│   └── build-cowork-zip.js       # Builds the Cowork/Claude.ai zip release
 ├── setup                         # Shell installer (git clone fallback)
 ├── package.json
 └── README.md
