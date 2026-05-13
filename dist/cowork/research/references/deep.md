@@ -60,9 +60,15 @@ node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-f
 
 Run with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The command writes live status updates to stderr and the final report to stdout. With `2>&1` both streams merge so Monitor captures everything.
 
-Tell the user: "Research submitted — I'll stream updates as they come in. This takes about 5 minutes."
+Tell the user: "Research submitted — this takes about 5 minutes. I'll present the results when they're ready."
 
 Clean up after: `rm -f "$CONTEXT_FILE"`
+
+## While research is running: DO NOT narrate status updates
+
+Monitor events will arrive every 15 seconds with progress like "in progress (120s elapsed, poll 8)..." and agent activity ("Searching...", "Using tool: Bash").
+
+**Stay silent until the job completes or fails.** Do not respond to intermediate status events. No "still running...", no "almost there...", no "the agent is now searching docs...". This wastes context for zero value. If the user asks a question while research runs, answer it — you're not blocked. When the result arrives, present it immediately.
 
 ## Step 5: Present results
 
@@ -96,3 +102,7 @@ Exit code 2 means the server is still running. The JSON payload includes a `job_
 - Do NOT re-submit the same query if a previous job is still running — use status to check.
 - Do NOT invoke Bash with the default 120s timeout — it WILL be killed mid-research.
 - Do NOT skip research and guess API shapes from memory when the cost is a 2-minute call.
+- Do NOT narrate Monitor status events — stay silent until the job completes.
+- Do NOT abandon or "disregard" a running research job because it's taking a few minutes. Deep research legitimately takes 2-9 minutes. The status events prove it's working. Wait for the result.
+- Do NOT spawn duplicate research agents while a job is running. One job at a time.
+- Do NOT describe the research as "going in circles" or "stuck" when you see repeated polling events. Polling every 15 seconds is normal operation, not a problem.
