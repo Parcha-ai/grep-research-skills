@@ -61,6 +61,7 @@ console.log(`Building grep-research-skills v${version} for Cowork...`);
 
 const requiredFiles = [
   path.join(DIST_SKILL, 'SKILL.md'),
+  // Routes 1-8 — research tiers + planning + skill-creator + account ops
   path.join(DIST_SKILL, 'references', 'deep.md'),
   path.join(DIST_SKILL, 'references', 'quick.md'),
   path.join(DIST_SKILL, 'references', 'ultra.md'),
@@ -69,6 +70,15 @@ const requiredFiles = [
   path.join(DIST_SKILL, 'references', 'login.md'),
   path.join(DIST_SKILL, 'references', 'upgrade.md'),
   path.join(DIST_SKILL, 'references', 'status.md'),
+  // Routes 9-16 — v2 expansion: domain experts, deliverables, workflows, MCP
+  path.join(DIST_SKILL, 'references', 'domain-expert.md'),
+  path.join(DIST_SKILL, 'references', 'build-app.md'),
+  path.join(DIST_SKILL, 'references', 'build-slidedeck.md'),
+  path.join(DIST_SKILL, 'references', 'build-spreadsheet.md'),
+  path.join(DIST_SKILL, 'references', 'research-workflow.md'),
+  path.join(DIST_SKILL, 'references', 'with-context.md'),
+  path.join(DIST_SKILL, 'references', 'continue.md'),
+  path.join(DIST_SKILL, 'references', 'mcp.md'),
 ];
 
 const missing = requiredFiles.filter(f => !fs.existsSync(f));

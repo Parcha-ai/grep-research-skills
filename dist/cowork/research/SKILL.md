@@ -1,6 +1,6 @@
 ---
 name: research
-description: Deep research powered by GREP — investigate APIs, libraries, companies, markets, and any topic with sourced citations. Use when you need to research something, fact-check a claim, plan an implementation with real docs, create a new skill, check GREP account status, or upgrade your plan. Trigger on: "research", "look up", "investigate", "fact check", "what's the best way to", "how does X work", "find out about", "GREP", or any task where knowing current facts would improve the outcome. Use proactively before writing code against unfamiliar APIs.
+description: Deep research powered by GREP — investigate APIs, libraries, companies, markets, and any topic with sourced citations. Build interactive HTML apps, slidedecks, and spreadsheets backed by research. Route to one of 27 domain experts (legal, medical, patent, financial, real estate, supply chain, maritime, etc.). Use when you need to research something, fact-check a claim, plan an implementation with real docs, create a new skill, build a deliverable, install Grep as an MCP server, check GREP account status, or upgrade your plan. Trigger on: "research", "look up", "investigate", "fact check", "what's the best way to", "how does X work", "find out about", "build me a", "make a slidedeck/spreadsheet", "use the X expert", "follow up on", "research using these files", "install grep MCP", "GREP", or any task where knowing current facts would improve the outcome. Use proactively before writing code against unfamiliar APIs.
 ---
 
 # GREP Research
@@ -87,9 +87,57 @@ Determine what the user wants, then read the matching reference file for the det
 
 **When:** The user explicitly asks to log in or authenticate. Also auto-triggered by the auth gate above on 401. Cues: "login", "authenticate", "connect my account", "API key".
 
+### Route 9: Route to a domain expert
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/domain-expert.md`
+
+**When:** The user wants a specific domain specialist — legal, medical, patent, financial, real estate, supply chain, maritime, KYC/KYB, vehicle/VIN, government policy, etc. Cues: "use the legal expert", "kyc/kyb on", "due diligence on", "patent landscape", "clinical trials for", "decode VIN", "vessel tracking". Routes to one of 27 public experts via `expert_id`.
+
+### Route 10: Build an interactive HTML app
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/build-app.md`
+
+**When:** The user wants a runnable HTML/JS deliverable — dashboard, calculator, data explorer, interactive comparison tool. Cues: "build me a tool", "make an interactive", "create a dashboard for", "I want to be able to click/sort/filter". Runs the app-builder expert at `effort=build` (10-15 min).
+
+### Route 11: Build a slidedeck
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/build-slidedeck.md`
+
+**When:** The user wants a presentation. Cues: "make a slidedeck", "build a deck", "presentation about", "slides on". Produces HTML deck with arrow-key nav + PDF export.
+
+### Route 12: Build a spreadsheet
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/build-spreadsheet.md`
+
+**When:** The user wants tabular data. Cues: "make a spreadsheet", "build a table of", "list of X as a sheet", "comparison table with columns". Produces sortable HTML table with CSV export.
+
+### Route 13: Multi-step research workflow
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/research-workflow.md`
+
+**When:** The user wants research chained into a deliverable, or multiple coordinated jobs. Cues: "investigate X and then make a deck", "research X and build a tool", "do deep research on X then summarize as a spreadsheet". Orchestrates orient → deep dive → optional build artifact.
+
+### Route 14: Research with attached files
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/with-context.md`
+
+**When:** The user has files (PDFs, CSVs, images) that should be inputs to the research. Cues: "research using these PDFs", "summarize this report", "compare these documents", "extract insights from this CSV". Uploads as attachments, references via `attachment_ids`.
+
+### Route 15: Continue / follow up on existing job
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/continue.md`
+
+**When:** The user wants to extend a prior research job rather than start a new one. Cues: "follow up on that", "go deeper on the X you found", "continue job <slug>", "ask a follow-up". Inherits prior context via `POST /api/v2/research/<slug>/continue`.
+
+### Route 16: Install Grep as an MCP server
+
+**Read:** `${CLAUDE_SKILL_DIR}/references/mcp.md`
+
+**When:** The user wants to wire Grep into another agent's `.mcp.json` (Cursor, Cline, Continue, etc.) as a native MCP server with 4 tools. Cues: "install grep MCP", "add grep to my mcp config", "grep as MCP server".
+
 ## Shared: gathering codebase context
 
-Routes 1, 4, and 5 benefit from sending codebase context alongside the research query. When the reference file calls for context gathering, use this pattern:
+Routes 1, 4, 5, 9, 10, 11, 12, 13, and 14 benefit from sending codebase context alongside the research query. When the reference file calls for context gathering, use this pattern:
 
 ```bash
 CONTEXT_FILE=$(mktemp /tmp/grep-research-context.XXXXXX)
