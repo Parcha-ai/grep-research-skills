@@ -26,9 +26,11 @@ For Cowork and Claude.ai, GREP is packaged as a **single `/research` skill** (in
 **Building the zip from source:**
 
 ```bash
-node bin/build-cowork-zip.js
-# → dist/grep-research-skills-v0.1.0.zip
+npm install            # one-time, pulls archiver (the only devDependency)
+npm run build:cowork   # → dist/grep-research-skills-v0.1.0.zip
 ```
+
+Pure-JS — no system `zip` binary required. Works on macOS, Linux, and Windows.
 
 **Required: Allow network access.** In your Cowork org settings under **Code execution → Allow network egress**, add these domains to the allowlist:
 
