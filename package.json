@@ -37,5 +37,11 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "scripts": {
+    "build:cowork": "node bin/build-cowork-zip.js"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
   }
 }

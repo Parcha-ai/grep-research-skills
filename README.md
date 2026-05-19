@@ -14,12 +14,25 @@ That's it. Works with Claude Code, Cowork, and OpenClaw — the installer auto-d
 
 **Requirements:** Node.js 18+
 
-### Alternative: Cowork
+### Alternative: Cowork / Claude.ai
+
+For Cowork and Claude.ai, GREP is packaged as a **single `/research` skill** (instead of 8 individual skills). One router skill handles everything — it reads the right reference file based on your intent.
 
 1. Download the latest zip from [Releases](https://github.com/parcha-ai/grep-research-skills/releases/latest)
 2. In Cowork, go to **Settings → Plugins** and click **Add Plugin**
 3. Upload `grep-research-skills-v0.2.0.zip`
-4. The skills will appear in your org — all team members get access
+4. The `/research` skill appears in your org — all team members get access
+
+**Why one skill?** Claude Code discovers skills as individual symlinks, so 16 skills = better auto-triggering. Cowork/Claude.ai loads skills from a zip, where a single well-described router skill with reference files is more practical and avoids cluttering the skill list.
+
+**Building the zip from source:**
+
+```bash
+npm install            # one-time, pulls archiver (the only devDependency)
+npm run build:cowork   # → dist/grep-research-skills-v0.2.0.zip
+```
+
+Pure-JS — no system `zip` binary required. Works on macOS, Linux, and Windows.
 
 **Required: Allow network access.** In your Cowork org settings under **Code execution → Allow network egress**, add these domains to the allowlist:
 
@@ -47,6 +60,8 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 
 ## What You Get
 
+### Claude Code (16 individual skills)
+
 | Skill | Triggers on | What it does |
 |---|---|---|
 | `/grep-login` | "log in to grep", "grep auth" | Authenticate via email OTP or API key |
@@ -67,6 +82,12 @@ git clone https://github.com/parcha-ai/grep-research-skills.git ~/.grep-research
 | **`/grep-continue`** | "follow up on that research" | Continue an existing job with a new question, inheriting prior research context |
 
 **Bold rows are new in 0.2.0.**
+
+### Cowork / Claude.ai (single consolidated skill)
+
+| Skill | Description |
+|-------|-------------|
+| `/research` | All features in one skill — routes to the right workflow (deep, quick, ultra, plan, skill-creator, login, upgrade, status) based on what you ask for |
 
 ## Getting Started
 
@@ -182,7 +203,7 @@ grep-research-skills/
 ├── .github/
 │   └── workflows/
 │       └── sync-experts.yml       # Nightly drift check vs live /api/v2/experts
-├── skills/
+├── skills/                        # Claude Code: 16 individual skills
 │   ├── research/SKILL.md          # Deep research (effort=medium, ~5 min)
 │   ├── quick-research/SKILL.md    # Fast fact check (effort=low, ~25s)
 │   ├── ultra-research/SKILL.md    # Exhaustive research (effort=high, up to 1 hr)
@@ -199,6 +220,19 @@ grep-research-skills/
 │   ├── grep-research-workflow/SKILL.md  # Multi-step chains (NEW)
 │   ├── grep-with-context/SKILL.md   # Research with attached files (NEW)
 │   └── grep-continue/SKILL.md     # Continue existing jobs (NEW)
+├── dist/cowork/                   # Cowork/Claude.ai: single consolidated skill
+│   └── research/
+│       ├── SKILL.md               # Router — routes intent to reference files
+│       ├── references/            # Workflow details for each intent
+│       │   ├── deep.md
+│       │   ├── quick.md
+│       │   ├── ultra.md
+│       │   ├── plan.md
+│       │   ├── skill-creator.md
+│       │   ├── login.md
+│       │   ├── upgrade.md
+│       │   └── status.md
+│       └── scripts/               # Bundled at build time by build-cowork-zip.js
 ├── resources/
 │   ├── experts.md                 # 27-expert catalog (drift-tracked)
 │   ├── intent_map.md              # Phrase → API fields lookup
@@ -211,7 +245,8 @@ grep-research-skills/
 │   ├── billing.js                 # Billing & Stripe checkout client
 │   └── update-check.js            # Plugin auto-update
 ├── bin/
-│   └── install.js                 # npx installer
+│   ├── install.js                 # npx installer
+│   └── build-cowork-zip.js        # Builds the Cowork/Claude.ai zip release
 ├── setup                          # Shell installer (git clone fallback)
 ├── package.json
 └── README.md
