@@ -89,15 +89,14 @@ The exec summary doesn't re-research the landscape — it inherits Step 1's find
 - **Don't skip Step 1 (the orientation pass)** when the user's query is broad. The cheap `effort=low` orientation is what makes Step 2's deep dive efficient — it scopes the investigation.
 - **Don't use `--reference-jobs` for unrelated topics.** If the follow-up isn't building on the prior research, start a fresh job — no `--reference-jobs`. Use `/grep-continue` for genuine continuations within the same topic.
 
-## Cost reference (PAYG / gateway)
+## Quota usage
 
-A 3-step workflow's typical cost on the gateway:
+A 3-step workflow consumes one job per step against the user's v2 subscription tier:
 
-| Step | Effort | Cost |
+| Step | Effort | What's billed |
 |---|---|---|
-| 1 (orient) | low | $0.40 + ~3 polls × 1¢ = ~$0.43 |
-| 2 (deep) | high | $10.00 + ~12 polls × 1¢ = ~$10.12 |
-| 3 (build) | build | $2.00 + ~60 polls × 1¢ = ~$2.60 |
-| **Total** |   | **~$13.15** |
+| 1 (orient) | low | 1 × low-effort job |
+| 2 (deep) | high | 1 × high-effort job |
+| 3 (build) | build | 1 × build job |
 
-On v2 (Descope/API-key auth), polls are free — only the writes count. The user's subscription absorbs the per-call cost.
+Polls (`GET /api/v2/research/{id}`) and file reads are free for authenticated users. Run `/grep-status` to see the user's current plan and remaining quota before kicking off a 3-step chain.

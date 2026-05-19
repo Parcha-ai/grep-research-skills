@@ -33,7 +33,7 @@ node "$SCRIPTS_DIR/update-check.js" 2>/dev/null &
 
 ## Prerequisites
 
-The user must be authenticated. Build jobs are paid (~$2.00 on the gateway PAYG flow, or counted against the user's v2 subscription). Check auth status:
+The user must be authenticated. Build jobs are paid (counted against the user's v2 subscription tier). Check auth status:
 
 ```bash
 node "$SCRIPTS_DIR/auth.js" status
@@ -150,10 +150,7 @@ When the Monitor notification arrives saying the job completed:
 
    ```bash
    API_BASE="${GREP_API_BASE:-https://api.grep.ai}"
-   # v2 surface:
    echo "$API_BASE/api/v2/research/<slug>/files/index.html"
-   # OR gateway equivalent (same workspace, different auth):
-   echo "$API_BASE/mpp/v1/api/research/<slug>/files/index.html"
    ```
 
 4. **Tell the user how to view:**

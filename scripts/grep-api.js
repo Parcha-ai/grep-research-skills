@@ -2,9 +2,9 @@
 /**
  * GREP API Client - Submit research jobs and poll for results
  *
- * Two surfaces:
- *   GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth
- *   GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (set GREP_RECEIPT=pi_xxx)
+ * Targets the v2 surface at `/api/v2/*`. Auth is Descope JWT or a `grp_*` API
+ * key, both sent as `Authorization: Bearer <token>` — reads
+ * ~/.grep/session.json (populated by scripts/auth.js).
  *
  * Usage:
  *   node grep-api.js run "What is quantum computing?" --effort=low
@@ -12,8 +12,9 @@
  *   node grep-api.js result <slug>
  *   node grep-api.js files <slug>
  *
- * v2 reads auth token from ~/.grep/session.json (via auth.js).
- * Gateway uses GREP_RECEIPT env var (the pi_xxx returned by purl/mppx prepay).
+ * Note: the wallet/PAYG gateway path (Receipt-bearer auth, x402, Stripe Link,
+ * Base USDC) lives on the `mpp-gateway-future` branch. It re-enters the script
+ * once the backend's MPP gateway is GA.
  */
 
 const fs = require('fs');
@@ -31,11 +32,7 @@ const DESCOPE_BASE_URL = 'https://api.descope.com';
 const GREP_UI_BASE = process.env.GREP_UI_BASE
   || GREP_API_BASE.replace('://api.', '://').replace('://preview-api.', '://preview.');
 
-// Surface selection:
-//   GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth
-//   GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (GREP_RECEIPT=pi_xxx)
-const SURFACE = process.env.GREP_SURFACE || 'v2';
-const BASE_PATH = process.env.GREP_API_BASE_PATH || (SURFACE === 'gateway' ? '/mpp/v1/api' : '/api/v2');
+const BASE_PATH = process.env.GREP_API_BASE_PATH || '/api/v2';
 
 // Map legacy depth vocab to canonical effort vocab.
 const DEPTH_TO_EFFORT = {
@@ -121,106 +118,30 @@ async function getValidToken() {
   return session.sessionJwt;
 }
 
-// Build the Authorization header for the active surface.
-// v2: Bearer <jwt-or-api-key>. Gateway: Receipt <pi_xxx>.
+// Build the Authorization header. v2 only — Bearer <Descope JWT> or
+// Bearer <grp_* API key>, both fetched from getValidToken (which reads
+// ~/.grep/session.json and refreshes the JWT proactively).
 async function buildAuthHeaders() {
-  if (SURFACE === 'gateway') {
-    if (!process.env.GREP_RECEIPT) {
-      console.error('[grep-api] GREP_SURFACE=gateway requires GREP_RECEIPT=pi_xxx.');
-      console.error('[grep-api] Fund a wallet first (Stripe Link is the recommended path):');
-      console.error(`[grep-api]   npm i -g @stripe/link-cli && link-cli mpp pay ${GREP_API_BASE}/mpp/v1/api/research --amount 1000`);
-      console.error('[grep-api] OR Base USDC:');
-      console.error(`[grep-api]   purl prepay ${GREP_API_BASE}/mpp/v1 --amount 10`);
-      console.error('[grep-api] Then export GREP_RECEIPT=<the pi_xxx the verifier prints>.');
-      process.exit(1);
-    }
-    return { Authorization: `Receipt ${process.env.GREP_RECEIPT}` };
-  }
   const token = await getValidToken();
   return { Authorization: `Bearer ${token}` };
 }
 
-// Print a 402 payment-required body in a clean shape, then exit 3.
+// Print a 402 payment-required body and exit 3.
 //
-// The backend (Parcha-ai/parcha #6191) advertises BOTH funding rails in
-// `accepts[]` when MPP_GATEWAY_LINK_RAIL_ENABLED=true on the server:
-//
-//   1. Stripe Link (push-to-phone)  — network="stripe",      asset="link-spt"
-//   2. Base USDC (EIP-3009 sig)     — network="base-sepolia", asset=<usdc>
-//
-// We parse both and emit a `rails[]` array with a copy-paste `client_hint` for
-// each, so the agent reading exit-3 output sees exactly which CLI to run.
+// On v2, 402 means the user's subscription tier is out of credits or doesn't
+// cover the requested effort — they need to upgrade their plan or top up.
+// Direct them to /grep-upgrade. (The wallet/PAYG gateway flow with x402 rails
+// lives on the mpp-gateway-future branch.)
 async function handle402(res) {
   const eb = await res.json().catch(() => ({}));
-  const accepts = Array.isArray(eb.accepts) ? eb.accepts : [];
-  const resourceUrl = eb.error?.payment?.resource || res.url || '';
-
-  const rails = accepts.map(a => {
-    // For the Base USDC rail, maxAmountRequired is in 6-decimal USDC units
-    // (cents * 10000). For the Link rail, it's already cents.
-    const cents = a.network === 'stripe'
-      ? Number(a.maxAmountRequired)
-      : Math.round(Number(a.maxAmountRequired) / 10000);
-    const dollars = (cents / 100).toFixed(2);
-
-    // Per Parcha-ai/parcha #6192, the Stripe entry's `extra` now carries:
-    //   - livemode: false on sandbox backends (preview-api.grep.ai) where the
-    //                STRIPE_SECRET_KEY is sk_test_*, true on prod (api.grep.ai).
-    //                When false, link-cli MUST be invoked with --test so it
-    //                signs against Stripe's test card universe; pairing a live
-    //                SPT against a test backend (or vice versa) fails to charge
-    //                or — worst case — charges real money on a backend that
-    //                thinks it credited test cents.
-    //   - stripe_account_id: informational ("link-cli must be logged into
-    //                this account"). Surface it so future agents can validate.
-    const livemode = a.extra?.livemode;
-    const stripeAccountId = a.extra?.stripe_account_id || null;
-    const sandboxFlag = (a.network === 'stripe' && livemode === false) ? ' --test' : '';
-
-    const clientHint = a.network === 'stripe'
-      ? `npm i -g @stripe/link-cli && link-cli mpp pay ${resourceUrl} --amount ${cents}${sandboxFlag}`
-      : `purl prepay ${resourceUrl.replace(/\/api\/?$/, '').replace(/\/research$/, '')} --amount ${dollars}`;
-
-    const rail = {
-      rail: a.network === 'stripe' ? 'stripe-link' : 'base-usdc',
-      network: a.network,
-      asset: a.asset,
-      cents,
-      challenge_id: a.extra?.challenge_id || null,
-      client_hint: clientHint,
-      ux_note: a.network === 'stripe'
-        ? 'Push notification on user phone via Link app — tap Approve $X.XX. Recommended for accountless agents.'
-        : 'Sign EIP-3009 envelope with a USDC wallet on Base. Recommended when Stripe Link is unavailable.',
-    };
-
-    // Surface Stripe sandbox/live mode to the agent so it can validate before paying
-    if (a.network === 'stripe') {
-      rail.livemode = livemode;
-      rail.stripe_account_id = stripeAccountId;
-      if (livemode === false) {
-        rail.mode_note = 'livemode=false → SANDBOX backend. link-cli MUST be invoked with --test (the client_hint above already includes it). Logged-in Link card will sign against Stripe test universe; no real money moves.';
-      } else if (livemode === true) {
-        rail.mode_note = 'livemode=true → LIVE backend. link-cli signs against the real Link card; real money will move.';
-      } else {
-        rail.mode_note = 'livemode missing from `extra` — backend predates Parcha-ai/parcha #6192. Default to NOT passing --test (assume live), but confirm by checking $GREP_API_BASE host.';
-      }
-    }
-
-    return rail;
-  });
-
   console.error(JSON.stringify({
     error: 'payment_required',
-    code: eb.error?.code || 'payment_required',
-    message: eb.error?.message || eb.detail || 'Funding required — pick a rail below.',
-    minimum_topup_cents: eb.error?.payment?.minimum_topup_cents || rails[0]?.cents || 1000,
-    rails,
-    legacy_payment: eb.error?.payment || null,
-    note: rails.length === 0
-      ? 'No accepts[] in the 402 body — server may be returning a non-x402 402.'
-      : (rails.length === 1
-          ? `Only one rail offered (${rails[0].rail}). The deployment may have MPP_GATEWAY_LINK_RAIL_ENABLED=false.`
-          : 'Both rails offered — pick whichever your environment supports. Stripe Link is the recommended demo path.'),
+    code: eb.error?.code || eb.code || 'payment_required',
+    message: eb.error?.message || eb.detail || eb.message
+      || 'Subscription quota exceeded — upgrade your plan or top up.',
+    upgrade_url: `${GREP_UI_BASE}/upgrade`,
+    hint: 'Run `/grep-upgrade` from your AI agent, or visit the upgrade URL above.',
+    raw: eb,
   }, null, 2));
   process.exit(3);
 }
@@ -472,20 +393,8 @@ async function listExperts() {
 }
 
 async function getDiscovery() {
-  // v2 publishes its contract via /openapi.json; gateway has /mpp/v1/api.
-  const url = SURFACE === 'gateway' ? `${GREP_API_BASE}${BASE_PATH}` : `${GREP_API_BASE}/openapi.json`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
-  console.log(JSON.stringify(await res.json(), null, 2));
-}
-
-async function getWallet(address) {
-  // Gateway-only public endpoint — read the wallet's bonus_credits balance.
-  // Uses BASE_PATH so GREP_API_BASE_PATH override is respected; falls back to
-  // /mpp/v1/api when running on the v2 surface (the gateway is the only place
-  // /wallet exists).
-  const walletBase = SURFACE === 'gateway' ? BASE_PATH : '/mpp/v1/api';
-  const res = await fetch(`${GREP_API_BASE}${walletBase}/wallet/${address.toLowerCase()}`);
+  // v2 publishes its contract via /openapi.json — public, no auth.
+  const res = await fetch(`${GREP_API_BASE}/openapi.json`);
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   console.log(JSON.stringify(await res.json(), null, 2));
 }
@@ -738,16 +647,12 @@ switch (command) {
   case 'discovery':
     getDiscovery().catch(e => { console.error(e.message); process.exit(1); });
     break;
-  case 'wallet':
-    if (!args[0]) { console.error('Usage: grep-api.js wallet <wallet_address>'); process.exit(1); }
-    getWallet(args[0]).catch(e => { console.error(e.message); process.exit(1); });
-    break;
   default:
-    console.error('GREP API Client');
+    console.error('GREP API Client (v2)');
     console.error('');
-    console.error('Surfaces:');
-    console.error('  GREP_SURFACE=v2       (default) — Descope JWT or grp_* API key, Bearer auth');
-    console.error('  GREP_SURFACE=gateway  — wallet PAYG, Receipt auth (set GREP_RECEIPT=pi_xxx)');
+    console.error('Auth:');
+    console.error('  Descope JWT or grp_* API key — Bearer auth, read from ~/.grep/session.json');
+    console.error('  (populated by `scripts/auth.js login <email>` or `set-api-key grp_xxx`).');
     console.error('');
     console.error('Usage:');
     console.error('  node grep-api.js run "query"               Submit + poll to completion (blocking)');
@@ -763,15 +668,14 @@ switch (command) {
     console.error('  node grep-api.js upload <path>             Upload an attachment (returns attachment_id)');
     console.error('  node grep-api.js delete-attachment <id>    Delete an attachment');
     console.error('  node grep-api.js experts                   List public domain experts (free, no auth)');
-    console.error('  node grep-api.js discovery                 Discovery doc / OpenAPI (free, no auth)');
-    console.error('  node grep-api.js wallet <address>          Read wallet balance (gateway only, free)');
+    console.error('  node grep-api.js discovery                 OpenAPI doc (free, no auth)');
     console.error('');
     console.error('Flags:');
     console.error('  --effort=<low|medium|high|build>     Effort tier (default: medium)');
-    console.error('    low      ~25s — quick lookup     (~40¢ on gateway, 2¢ promo)');
-    console.error('    medium   ~5min — standard          (~$2.00 on gateway)');
-    console.error('    high     up to 1 hour — exhaustive (~$10.00 on gateway)');
-    console.error('    build    10-15 min — runnable HTML (~$2.00 on gateway, used with --output-type)');
+    console.error('    low      ~25s — quick lookup');
+    console.error('    medium   ~5min — standard');
+    console.error('    high     up to 1 hour — exhaustive');
+    console.error('    build    10-15 min — runnable HTML (used with --output-type)');
     console.error('  --depth=<ultra_fast|deep|ultra_deep> Legacy alias for --effort (mapped automatically)');
     console.error('  --expert-id=<id>                     Route to a specific expert (see `experts` command)');
     console.error('  --output-type=<slidedeck|spreadsheet|html_app|podcast|video|news_broadcast>');
@@ -788,26 +692,10 @@ switch (command) {
     console.error('Env:');
     console.error('  GREP_API_BASE              API host (default https://api.grep.ai; use https://preview-api.grep.ai for preview)');
     console.error('  GREP_UI_BASE               UI host for printed report links (auto-derived from GREP_API_BASE; override if needed)');
-    console.error('  GREP_SURFACE               v2 (default) or gateway');
-    console.error('  GREP_RECEIPT               Stripe pi_xxx receipt (required when surface=gateway)');
-    console.error('  GREP_API_BASE_PATH         Override the base path (rare)');
-    console.error('');
-    console.error('Gateway funding (one signature funds many requests; first 3 low jobs at 2¢ promo, then full PAYG):');
-    console.error('  Stripe Link (push notification → phone approval) — RECOMMENDED for accountless agents:');
-    console.error('    npm i -g @stripe/link-cli');
-    console.error('    link-cli mpp pay $GREP_API_BASE/mpp/v1/api/research --amount 1000');
-    console.error('    # → emits pi_xxx — export GREP_RECEIPT=pi_xxx');
-    console.error('  Base USDC (EIP-3009 signature) — fallback when Stripe Link is unavailable:');
-    console.error('    purl prepay $GREP_API_BASE/mpp/v1 --amount 10');
-    console.error('    # → emits pi_xxx — export GREP_RECEIPT=pi_xxx');
-    console.error('');
-    console.error('Gateway pricing note:');
-    console.error('  Each GET that touches user data costs 1¢ (poll, files, timeline).');
-    console.error('  A 5-min `run` poll loop = ~20 polls × 1¢ = 20¢ on top of the job cost.');
-    console.error('  Run `discovery` to see which rails the deployment offers.');
+    console.error('  GREP_API_BASE_PATH         Override the base path (rare; defaults to /api/v2)');
     console.error('');
     console.error('Exit codes:');
     console.error('  0 success   1 error/auth   2 timeout (job still running)');
-    console.error('  3 payment_required (initial fund OR receipt expired/evicted; pick a rail and retry)');
+    console.error('  3 payment_required (subscription quota exceeded — run /grep-upgrade)');
     process.exit(1);
 }

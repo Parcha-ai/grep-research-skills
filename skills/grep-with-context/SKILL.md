@@ -34,7 +34,7 @@ node "$SCRIPTS_DIR/auth.js" status
 
 If `"authenticated": false`, **automatically invoke `/grep-login`**.
 
-Attachment uploads cost 5¢ each on the gateway PAYG flow (counted against the user's subscription on v2).
+Attachment uploads count against the user's v2 subscription tier.
 
 ## Resolve script path
 

@@ -34,7 +34,7 @@ node "$SCRIPTS_DIR/auth.js" status
 
 If `"authenticated": false`, **automatically invoke `/grep-login`**.
 
-A 3-step workflow can cost ~$13 on the gateway PAYG (low orientation + high deep-dive + build artifact). Tell the user the total cost up front before submitting.
+A 3-step workflow (low orientation + high deep-dive + build artifact) consumes meaningful quota on the user's v2 subscription. Tell the user the plan up front before submitting.
 
 ## Resolve script + resources paths
 
@@ -200,10 +200,4 @@ Common follow-ups:
 
 ## Cost reference
 
-See `resources/chaining_examples.md` for worked-out cost tables. Quick gist on the gateway PAYG:
-
-- Pure 2-step research (orient + deep): ~$10.55
-- 3-step with build: ~$13.15
-- 2-step shortcut (skip orient): ~$12.12
-
-On v2 (Descope/API-key auth), polls are free — only the writes count against the user's subscription.
+A workflow's effort tiers map directly to the user's v2 subscription quota — each `research`/`continue` POST debits one job at the matching tier. Polls (GET /research/{id}) are free for authenticated users. See `resources/chaining_examples.md` for worked-out chain shapes.

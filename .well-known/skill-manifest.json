@@ -23,26 +23,16 @@
     { "name": "grep-continue", "path": "skills/grep-continue/SKILL.md", "added_in": "0.2.0" }
   ],
   "backend": {
+    "api": "v2",
     "openapi": "https://api.grep.ai/openapi.json",
     "experts": "https://api.grep.ai/api/v2/experts",
     "onboarding": "https://api.grep.ai/.well-known/agent-onboarding.md",
-    "gateway_discovery": "https://api.grep.ai/mpp/v1/api",
-    "gateway_onboarding": "https://api.grep.ai/mpp/v1/.well-known/agent-onboarding.md",
-    "gateway_funding_rails": [
-      {
-        "name": "Stripe Link",
-        "method": "stripe-spt",
-        "client_cli": "npm i -g @stripe/link-cli && link-cli mpp pay",
-        "ux": "Push notification on user phone via Link app — recommended for accountless agents.",
-        "spt_api_version": "2026-04-22.preview"
-      },
-      {
-        "name": "Base USDC",
-        "method": "tempo-pathusd",
-        "client_cli": "brew install stripe/purl/purl && purl prepay",
-        "ux": "EIP-3009 signature — fallback when Stripe Link is unavailable."
-      }
-    ],
+    "auth": {
+      "model": "descope-jwt-or-api-key",
+      "header": "Authorization: Bearer <token>",
+      "session_file": "~/.grep/session.json",
+      "api_keys_url": "https://grep.ai/api-keys"
+    },
     "deployments": {
       "production": "https://api.grep.ai",
       "preview": "https://preview-api.grep.ai"

@@ -34,13 +34,6 @@ If the phrase doesn't include an effort signal:
 - "deep" / "thorough" / "comprehensive" / "investigation" → `high`
 - "build a / make a / create a" → `output_type` sugar handles `effort=build` automatically
 
-## Pricing reminder (gateway / PAYG)
+## Pricing
 
-On the gateway surface, each tier costs:
-
-- `effort=low` → 40¢ (or 2¢ on the freshly-funded-wallet promo, first 3 jobs)
-- `effort=medium` → $2.00
-- `effort=high` → $10.00
-- `effort=build` → $2.00
-
-Each GET (poll, files, timeline) costs 1¢. v2 surface bills against the user's Descope-tied subscription instead — no per-call charge for authenticated users on a paid tier.
+The v2 API bills against the user's Descope-tied subscription tier (Free / Pro / Ultra / PAYG). Each `POST /api/v2/research` consumes one job at the matching effort tier; polls (`GET /api/v2/research/{id}`) and file reads are free for authenticated users. Run `/grep-status` to see the user's current plan and recent usage.

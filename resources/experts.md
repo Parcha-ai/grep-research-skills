@@ -3,7 +3,7 @@
 
 # Grep public experts
 
-The 27 expert IDs accepted on `POST /api/v2/research`'s `expert_id` field. Identical set on the gateway's `POST /mpp/v1/api/research`. Use this table to route a user's question to the right specialist.
+The 27 expert IDs accepted on `POST /api/v2/research`'s `expert_id` field. Use this table to route a user's question to the right specialist.
 
 | expert_id | Display name | Domain / specialty | Sample question | Output types |
 |---|---|---|---|---|
