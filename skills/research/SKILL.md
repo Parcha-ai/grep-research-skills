@@ -167,11 +167,25 @@ Run this with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The comma
 rm -f "$CONTEXT_FILE"
 ```
 
-Tell the user: "Research submitted — I'll stream updates as they come in. This takes about 5 minutes."
+Tell the user: "Research submitted — this takes about 5 minutes. I'll present the results when they're ready."
+
+## While research is running: DO NOT narrate status updates
+
+**This is critical.** Monitor events will arrive every 15 seconds with status updates like "in progress (120s elapsed, poll 8)..." and research agent activity ("Searching...", "Using tool: Bash", "Thinking...").
+
+**DO NOT** respond to each Monitor event with commentary. No "still running...", no "almost there...", no "the agent is now searching docs...". This burns context for zero value.
+
+**Instead:**
+- After submitting, tell the user once that research is running
+- **Stay silent** until the job completes or fails — do not acknowledge intermediate status events
+- If the user asks a question while research runs, answer it normally — you're not blocked
+- When the final result arrives, present it immediately
+
+The anti-pattern to avoid: 15 turns of "Research in progress — 2 minutes in", "Agent is fetching docs now", "Still writing the report...", "Almost there...". This is pure noise that wastes the context window and adds no intelligence.
 
 ## CRITICAL: Always deliver results
 
-When the Monitor notification arrives saying the task completed, you MUST:
+When the Monitor notification arrives saying the task completed (or failed/timed out), you MUST:
 
 1. Read the output file from the task notification
 2. Extract and present the research report to the user
@@ -215,3 +229,7 @@ Exit code 2 means the server is still running. The JSON payload includes a `job_
 - Do NOT re-submit the same query if a previous job is still running — use `/grep-status` to pick up where you left off.
 - Do NOT invoke the bash command with the default 120s timeout — it WILL be killed mid-research.
 - Do NOT skip research and guess API shapes from memory when the cost is a 2-minute call.
+- Do NOT narrate Monitor status events — stay silent until the job completes (see above).
+- Do NOT abandon or "disregard" a running research job because it's taking a few minutes. Deep research legitimately takes 2-9 minutes. The job IS working — the status events prove it. Wait for the result.
+- Do NOT spawn duplicate research agents or alternative approaches while a research job is running. One job at a time. The result will come.
+- Do NOT describe the research as "going in circles" or "stuck" when you see repeated polling events. Polling every 15 seconds with "in progress" status is normal operation, not a problem.
