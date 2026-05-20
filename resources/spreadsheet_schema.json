@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GrepSpreadsheet",
+  "type": "object",
+  "required": ["title", "columns", "rows"],
+  "properties": {
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "columns": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["key", "label"],
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "label": { "type": "string" },
+          "type": { "type": "string", "enum": ["string", "number", "currency", "percent", "date", "url", "boolean"], "default": "string" },
+          "unit": { "type": "string" }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["values"],
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Cell values keyed by column key. Per-value type validation against the column.type field is left to the app-builder — JSON Schema can't reference sibling properties to enforce that values[col.key] matches col.type."
+          },
+          "citations": { "type": "array", "items": { "type": "string", "format": "uri" } }
+        }
+      }
+    },
+    "footer_notes": { "type": "string" }
+  }
+}

@@ -3,7 +3,7 @@ name: research
 description: Deep research via GREP (typically ~5 minutes) with sourced citations. Use for most research tasks — investigating APIs/libraries before writing code, company research, market analysis, verifying complex claims, comprehensive docs lookups, fact-checking with sources. ALSO use proactively when planning to write code against unfamiliar APIs, SDKs, protocols, or libraries — sourced research beats guessing from memory. Use /quick-research (~25s) for simple lookups, or /ultra-research (up to 1 hour) for exhaustive investigations.
 ---
 
-# Deep Research (deep)
+# Deep Research (effort=medium)
 
 GREP's standard research tier. Typically takes **around 5 minutes** end-to-end (range: 2-9 minutes). Single blocking command handles submission, polling, and report delivery. The canonical choice for most research tasks.
 
@@ -157,7 +157,7 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --effort=medium --max-wait=540 --context-file="$CONTEXT_FILE" 2>&1
 ```
 
 Run this with **Monitor** (`timeout_ms: 560000`, `persistent: false`). The command writes live status updates to stderr and the final report to stdout. With `2>&1` both streams merge so Monitor captures everything.
@@ -198,7 +198,7 @@ The user invoked `/research` because they need an answer. A research job that co
 Only use blocking Bash if the Monitor tool is genuinely not available in the current environment:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --max-wait=540 --context-file="$CONTEXT_FILE"
+node "$SCRIPTS_DIR/grep-api.js" run "<refined_query>" --effort=medium --max-wait=540 --context-file="$CONTEXT_FILE"
 ```
 
 Clean up after: `rm -f "$CONTEXT_FILE"`

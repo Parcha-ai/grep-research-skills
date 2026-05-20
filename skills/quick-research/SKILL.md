@@ -3,7 +3,7 @@ name: quick-research
 description: Fast fact check via GREP (~25 seconds). Use for simple lookups where you need a sourced answer but don't need a deep investigation — API endpoint verification, version checks, "what's the current X" questions, quick pre-code sanity checks. Prefer this over /research when a 25-second answer beats a 2-minute answer. Use /research instead if you need comprehensive coverage, or /ultra-research for full investigations.
 ---
 
-# Quick Research (ultra_fast)
+# Quick Research (effort=low)
 
 Fastest GREP tier. ~25 seconds end-to-end. Single command, single blocking call, returns the report.
 
@@ -41,7 +41,7 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 
 ```bash
 SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}/SKILL.md")")")")/scripts"
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60 2>&1
+node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --effort=low --max-wait=60 2>&1
 ```
 
 Run this with **Monitor** (`timeout_ms: 80000`, `persistent: false`). With `2>&1`, status updates and the final report both stream as events.
@@ -59,7 +59,7 @@ When the Monitor notification arrives saying the task completed, you MUST:
 Only use blocking Bash if the Monitor tool is genuinely not available:
 
 ```bash
-node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --depth=ultra_fast --max-wait=60
+node "$SCRIPTS_DIR/grep-api.js" run "$ARGUMENTS" --effort=low --max-wait=60
 ```
 
 Set the Bash tool `timeout` to at least `80000` (80 seconds).

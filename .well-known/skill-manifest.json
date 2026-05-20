@@ -1,0 +1,41 @@
+{
+  "$schema": "https://parcha-ai.github.io/skill-manifest.schema.json",
+  "name": "grep-research-skills",
+  "version": "0.2.0",
+  "homepage": "https://github.com/parcha-ai/grep-research-skills",
+  "install": "git clone https://github.com/parcha-ai/grep-research-skills ~/.grep-research-skills && ~/.grep-research-skills/setup",
+  "skills": [
+    { "name": "grep-login", "path": "skills/grep-login/SKILL.md" },
+    { "name": "grep-status", "path": "skills/grep-status/SKILL.md" },
+    { "name": "grep-upgrade", "path": "skills/grep-upgrade/SKILL.md" },
+    { "name": "grep-skill-creator", "path": "skills/grep-skill-creator/SKILL.md" },
+    { "name": "grep-plan", "path": "skills/grep-plan/SKILL.md" },
+    { "name": "quick-research", "path": "skills/quick-research/SKILL.md" },
+    { "name": "research", "path": "skills/research/SKILL.md" },
+    { "name": "ultra-research", "path": "skills/ultra-research/SKILL.md" },
+    { "name": "grep-mcp", "path": "skills/grep-mcp/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-domain-expert", "path": "skills/grep-domain-expert/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-build-app", "path": "skills/grep-build-app/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-build-slidedeck", "path": "skills/grep-build-slidedeck/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-build-spreadsheet", "path": "skills/grep-build-spreadsheet/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-research-workflow", "path": "skills/grep-research-workflow/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-with-context", "path": "skills/grep-with-context/SKILL.md", "added_in": "0.2.0" },
+    { "name": "grep-continue", "path": "skills/grep-continue/SKILL.md", "added_in": "0.2.0" }
+  ],
+  "backend": {
+    "api": "v2",
+    "openapi": "https://api.grep.ai/openapi.json",
+    "experts": "https://api.grep.ai/api/v2/experts",
+    "onboarding": "https://api.grep.ai/.well-known/agent-onboarding.md",
+    "auth": {
+      "model": "descope-jwt-or-api-key",
+      "header": "Authorization: Bearer <token>",
+      "session_file": "~/.grep/session.json",
+      "api_keys_url": "https://grep.ai/api-keys"
+    },
+    "deployments": {
+      "production": "https://api.grep.ai",
+      "preview": "https://preview-api.grep.ai"
+    }
+  }
+}

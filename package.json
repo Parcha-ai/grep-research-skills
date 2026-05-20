@@ -1,6 +1,6 @@
 {
   "name": "grep-research-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Give your AI agent deep research superpowers. Connects Claude Code, Cowork, and OpenClaw to GREP — the #1 deep research engine.",
   "author": {
     "name": "Parcha Labs",
@@ -30,8 +30,10 @@
     "bin/",
     "scripts/",
     "skills/",
+    "resources/",
     "setup",
-    ".claude-plugin/"
+    ".claude-plugin/",
+    ".well-known/"
   ],
   "engines": {
     "node": ">=18"
