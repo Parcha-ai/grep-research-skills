@@ -1,10 +1,14 @@
 # Skill Creator
 
-Create a new SKILL.md file for an AI agent skill, informed by deep research on the target domain. Gathers requirements, researches the relevant APIs/tools/patterns, then generates a complete skill file.
+Create a new SKILL.md file for an AI agent skill, informed by deep research on the target domain. The process: capture intent → research the domain → write the skill → test it → iterate.
 
-## Step 1: Understand what the user wants
+## Step 1: Capture intent
 
-The user's initial input is a rough description. Clarify with **AskUserQuestion** (combine into 1-2 questions):
+The user's initial input is a rough description. Before researching, understand the skill well enough to write a targeted query.
+
+**Check conversation context first.** If the user has been working through a workflow in this conversation and says "turn this into a skill", extract what you can from the conversation history: the tools used, the sequence of steps, corrections the user made, input/output formats observed. Present what you've gathered and confirm before proceeding.
+
+If there's no conversation context to draw from, use **AskUserQuestion** to clarify (combine into 1-2 questions):
 
 **Question 1 — Scope and target:**
 - Header: "Skill scope"
@@ -67,46 +71,62 @@ Clean up after: `rm -f "$CONTEXT_FILE"`
 
 ## Step 4: Generate the SKILL.md
 
-Using the research findings AND the reference file patterns, write a complete SKILL.md following these 6 quality patterns:
+Using the research findings AND the reference file patterns, write a complete SKILL.md. Follow these quality patterns:
 
-### Pattern 1: Description tells Claude WHEN, not just WHAT
+### Description: tell Claude WHEN, not just WHAT
 
-Include at least 3 trigger keywords/phrases. Front-load the use case in the first 250 characters. State both what the skill does AND when to use it. Aim for 100-250 characters.
+The description is the primary triggering mechanism. Claude tends to undertrigger — it won't use skills it could benefit from. Combat this by being slightly "pushy": include trigger keywords, specific contexts, and edge cases ("even if they don't explicitly ask for X").
 
-### Pattern 2: Be directive, not conversational
+- Include at least 3 trigger keywords/phrases a user would say
+- Front-load the use case in the first 250 characters
+- State both what the skill does AND when to use it
+- Aim for 100-250 characters (under 50 gets invoked 3-5x less)
 
-Use imperative verbs and numbered steps. Skills are instructions, not chat.
+### Writing style
 
-### Pattern 3: Specify the output format explicitly
+- **Be directive** — imperative verbs and numbered steps, not conversational
+- **Explain the why** — instead of heavy-handed MUSTs in all caps, explain the reasoning. The model using this skill is smart; it produces better results when it understands context.
+- **Be general, not overfitted** — write principles that work across many prompts, not rules tuned to one example
+- **Specify output format** — tell Claude exactly what output should look like
+- **Include a "read first" step** — read target files before generating or modifying anything
+- **Define what's out of scope** — prevent Claude from trying and failing
 
-Tell Claude exactly what the output should look like. Without this, output varies every run.
+### Progressive disclosure
 
-### Pattern 4: Include a "read first" step
-
-Before generating or modifying anything:
-1. Read the target files to understand existing patterns
-2. Find existing examples in the project
-3. Identify the framework/tooling in use
-4. Match import style, naming conventions, and patterns
-
-### Pattern 5: Define what the skill does NOT do
-
-Explicitly list what's out of scope. This prevents Claude from trying and failing.
-
-### Pattern 6: Keep it under 500 lines
-
-Target under 300 lines. Hard cap at 500. If it's getting long, split into supporting files loaded on demand.
+- Target under 300 lines for the main SKILL.md, hard cap at 500
+- If approaching the limit, split into SKILL.md + reference files with clear pointers
+- For large reference files (>300 lines), include a table of contents
 
 ### Structural conventions
 
-- Frontmatter with `name` and `description` (following Pattern 1)
+- Frontmatter with `name` and `description`
 - Title and overview (1-2 sentences)
 - Numbered steps with bash code blocks
 - User interaction via AskUserQuestion
 - Out of scope section
 - Anti-patterns section
 
-## Step 5: Present and ask where to save
+## Step 5: Test the skill
+
+Before presenting, validate by thinking through 2-3 realistic test prompts — the kind of thing a real user would say. For each, mentally trace the skill's instructions:
+
+1. Would the description trigger correctly?
+2. Do the steps produce the right outcome?
+3. Are there missing error handlers or edge cases?
+4. Would a baseline (no skill) handle this just as well?
+
+If issues surface, revise before presenting.
+
+## Step 6: Optimise the description
+
+Review the description against should-trigger and should-not-trigger prompts:
+
+- **Should-trigger** (3-4 prompts): casual phrasings, indirect references, edge cases where this skill competes with others
+- **Should-not-trigger** (2-3 prompts): near-miss queries that share keywords but need something different — genuinely tricky, not obviously irrelevant
+
+Adjust the description if any prompt would be misrouted.
+
+## Step 7: Present and ask where to save
 
 Show the generated SKILL.md, then use **AskUserQuestion**:
 
@@ -117,12 +137,24 @@ Show the generated SKILL.md, then use **AskUserQuestion**:
   - "Claude Code skills" — "Save to ~/.claude/skills/<name>/SKILL.md (available globally)"
   - "Just show me" — "Don't save, I'll copy it myself"
 
+## Iterating on an existing skill
+
+If the user already has a skill and wants to improve it:
+
+1. Read the existing skill
+2. Ask what's not working — specific failures, missed triggers, wrong output
+3. **Generalise from feedback** — don't overfit to the specific failing example
+4. **Look for repeated work** — if test runs show the agent writing the same helper script every time, bundle it with the skill
+5. Revise, test mentally, present the diff
+
 ## Anti-patterns
 
 - Do NOT skip clarification — a vague brief produces a vague skill
 - Do NOT generate a skill without researching first — the whole point is research-informed accuracy
 - Do NOT invent API endpoints or CLI flags from memory — use what the research returns
-- Do NOT create skills over 500 lines — target under 300
+- Do NOT create skills over 500 lines — target under 300, use reference files for overflow
 - Do NOT write descriptions under 50 characters — short descriptions get invoked 3-5x less
 - Do NOT use conversational tone in the skill body — use imperative verbs and numbered steps
 - Do NOT skip the "Out of Scope" section — it prevents Claude from trying and failing
+- Do NOT overfit to test examples — write general principles, not narrow rules
+- Do NOT use heavy-handed ALWAYS/NEVER/MUST when explaining the reasoning would be more effective

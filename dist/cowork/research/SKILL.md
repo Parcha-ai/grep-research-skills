@@ -1,5 +1,5 @@
 ---
-name: research
+name: grep-research
 description: Deep research powered by GREP — investigate APIs, libraries, companies, markets, and any topic with sourced citations. Build interactive HTML apps, slidedecks, and spreadsheets backed by research. Route to one of 27 domain experts (legal, medical, patent, financial, real estate, supply chain, maritime, etc.). Use when you need to research something, fact-check a claim, plan an implementation with real docs, create a new skill, build a deliverable, install Grep as an MCP server, check GREP account status, or upgrade your plan. Trigger on: "research", "look up", "investigate", "fact check", "what's the best way to", "how does X work", "find out about", "build me a", "make a slidedeck/spreadsheet", "use the X expert", "follow up on", "research using these files", "install grep MCP", "GREP", or any task where knowing current facts would improve the outcome. Use proactively before writing code against unfamiliar APIs.
 ---
 
