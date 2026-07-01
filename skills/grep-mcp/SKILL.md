@@ -21,7 +21,7 @@ If the user's request is "do this one piece of research now," skip MCP setup —
 
 A Grep account with either:
 - a Descope session (created by `/grep-login`), or
-- a `grp_xxx` API key from https://grep.ai/api-keys
+- a `parcha-xxx` API key from https://grep.ai/api-keys
 
 Both produce a `Bearer` token. If the user has neither, walk them through `/grep-login` first.
 
@@ -51,7 +51,7 @@ fi
 Decision:
 
 - `HAS_API_KEY=1` → read the key from `~/.grep/session.json` and use it in Step 3 below.
-- `HAS_SESSION=1` (OTP session, no API key on file) → ask the user to mint a `grp_xxx` at https://grep.ai/api-keys and paste it. API keys are long-lived; OTP-derived JWTs rotate every ~30 minutes and would break MCP requests once they expire.
+- `HAS_SESSION=1` (OTP session, no API key on file) → ask the user to mint a `parcha-xxx` at https://grep.ai/api-keys and paste it. API keys are long-lived; OTP-derived JWTs rotate every ~30 minutes and would break MCP requests once they expire.
 - Neither → run `/grep-login` first to set up the session, then come back.
 
 ## Step 2: Locate or create `.mcp.json`
@@ -80,7 +80,7 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
       "transport": "http",
       "url": "https://api.grep.ai/api/v2/mcp",
       "headers": {
-        "Authorization": "Bearer grp_xxx_USER_PASTED_KEY"
+        "Authorization": "Bearer parcha-xxx-USER-PASTED-KEY"
       }
     }
   }
@@ -93,7 +93,7 @@ Use Read + Write (not raw shell `jq`, which may not be installed). Read the file
 
 ```bash
 MCP_URL="$GREP_API_BASE/api/v2/mcp"
-AUTH_HEADER="Bearer grp_xxx_USER_PASTED_KEY"
+AUTH_HEADER="Bearer parcha-xxx-USER-PASTED-KEY"
 
 curl -s "$MCP_URL" \
   -H "Authorization: $AUTH_HEADER" \
@@ -105,7 +105,7 @@ curl -s "$MCP_URL" \
 Expected response: 4 tools — `research_create`, `research_get`, `research_files_list`, `research_file_read`.
 
 If the curl returns:
-- **401** — token wrong. Re-check `grp_xxx` or re-issue at https://grep.ai/api-keys.
+- **401** — token wrong. Re-check `parcha-xxx` or re-issue at https://grep.ai/api-keys.
 - **402** — subscription quota exceeded. Run `/grep-upgrade` to top up.
 - **404** — wrong URL. v2 MCP lives at `/api/v2/mcp`. Also check `$GREP_API_BASE` is the right deployment.
 - **5xx** — backend issue, not config. Wait + retry.
@@ -131,12 +131,12 @@ These compose with the other Grep skills naturally: an agent can use the MCP too
 
 - **`/mcp` shows `grep` but `tools/list` is empty:** transport mismatch. Confirm `"transport": "http"` exactly (not `"stream"`, not `"sse"`).
 - **`grep` not listed in `/mcp` after restart:** `.mcp.json` not loaded. Check it's in `$PWD` (the project root, not `~`).
-- **Tool calls return 401 mid-conversation:** API key revoked, rotated, or you put an OTP JWT in there instead of a long-lived `grp_xxx`. Re-issue at https://grep.ai/api-keys, replace in `.mcp.json`, restart.
+- **Tool calls return 401 mid-conversation:** API key revoked, rotated, or you put an OTP JWT in there instead of a long-lived `parcha-xxx`. Re-issue at https://grep.ai/api-keys, replace in `.mcp.json`, restart.
 - **Tool calls return 402:** subscription quota exceeded. Run `/grep-upgrade`.
 
 ## Anti-patterns
 
-- Do NOT paste a short-lived OTP `sessionJwt` in place of a `grp_xxx` API key. OTP JWTs rotate every ~30 minutes; MCP requests start failing once the cache stales.
+- Do NOT paste a short-lived OTP `sessionJwt` in place of a `parcha-xxx` API key. OTP JWTs rotate every ~30 minutes; MCP requests start failing once the cache stales.
 - Do NOT overwrite an existing `mcpServers.grep` entry without confirming — the user may have a custom config (different URL, custom headers, etc.).
 - Do NOT commit `.mcp.json` with a real API key to a public repo. Add `.mcp.json` to `.gitignore` if the repo is public.
 - Do NOT skip the verify step. A `.mcp.json` that points at the wrong URL or has a stale token wastes a restart cycle to discover.

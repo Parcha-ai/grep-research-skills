@@ -10,13 +10,13 @@ Authenticate with a GREP account. Three methods:
 If arguments are passed directly, skip the interactive questions:
 
 - **Email address** (e.g., `user@example.com`) — go straight to OTP flow (Step 1 with this email)
-- **`--api-key grp_abc123`** — save immediately:
+- **`--api-key parcha-abc123`** — save immediately:
   ```bash
   SCRIPTS_DIR="${CLAUDE_SKILL_DIR}/scripts"
   node "$SCRIPTS_DIR/auth.js" set-api-key "<api_key>"
   ```
   On success, skip to waitlist check. On failure, report the error.
-- **`--api-key grp_abc123 --email user@example.com`** — save API key, associate with email
+- **`--api-key parcha-abc123 --email user@example.com`** — save API key, associate with email
 
 If no arguments match these patterns, proceed to Step 0.
 

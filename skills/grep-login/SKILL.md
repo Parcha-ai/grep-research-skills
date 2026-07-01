@@ -22,12 +22,12 @@ SCRIPTS_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "${CLAUDE_SKILL_DIR}
 If the user passes arguments directly, skip the interactive questions:
 
 - **`/grep-login user@example.com`** — treat as email, go straight to OTP flow (Step 1 with this email)
-- **`/grep-login --api-key grp_abc123`** — save the API key immediately:
+- **`/grep-login --api-key parcha-abc123`** — save the API key immediately:
   ```bash
   node "${SCRIPTS_DIR}/auth.js" set-api-key "<api_key>"
   ```
   On success, skip to Step 5.5 (waitlist check). On failure, report the error.
-- **`/grep-login --api-key grp_abc123 --email user@example.com`** — save API key, associate with email
+- **`/grep-login --api-key parcha-abc123 --email user@example.com`** — save API key, associate with email
 
 If `$ARGUMENTS` is empty or doesn't match the above patterns, proceed to Step 0.
 

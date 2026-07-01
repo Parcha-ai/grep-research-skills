@@ -24,21 +24,21 @@ Mounting Grep at `/api/v2/mcp` exposes:
 
 No `continue` MCP tool — host agents that need continuation should call the v2 API directly.
 
-## Step 1: Confirm the user has an API key (grp_xxx)
+## Step 1: Confirm the user has an API key (parcha-xxx)
 
 MCP authenticates via Bearer API key, not Descope JWT. Check:
 
 ```bash
-cat ~/.grep/session.json 2>/dev/null | grep -o '"api_key": *"grp_[^"]*"' | head -1
+cat ~/.grep/session.json 2>/dev/null | grep -o '"api_key": *"parcha-[^"]*"' | head -1
 ```
 
 If they have one, capture it. If not:
 
-> "Grep MCP needs an API key (starts with `grp_`). Generate one at https://grep.ai/settings/api-keys, then paste it here."
+> "Grep MCP needs an API key (starts with `parcha-`). Generate one at https://grep.ai/settings/api-keys, then paste it here."
 
 Use **AskUserQuestion** to collect it.
 
-**Anti-pattern guard:** do NOT paste an OTP JWT (eyJ...) as the MCP API key — those expire in minutes. MCP needs a long-lived `grp_xxx` key from the Grep settings page.
+**Anti-pattern guard:** do NOT paste an OTP JWT (eyJ...) as the MCP API key — those expire in minutes. MCP needs a long-lived `parcha-xxx` key from the Grep settings page.
 
 ## Step 2: Determine the target host's MCP config path
 
@@ -57,7 +57,7 @@ Use **AskUserQuestion** to collect it.
     "grep": {
       "url": "https://api.grep.ai/api/v2/mcp",
       "headers": {
-        "Authorization": "Bearer grp_xxxxxxxx"
+        "Authorization": "Bearer parcha-xxxxxxxx"
       }
     }
   }
@@ -85,7 +85,7 @@ Suggest a quick smoke test: have the host agent call `research_create` with a si
 
 ## Anti-patterns
 
-- Do NOT paste the user's OTP JWT in place of `grp_xxx` — JWTs expire in minutes, MCP needs a long-lived key.
+- Do NOT paste the user's OTP JWT in place of `parcha-xxx` — JWTs expire in minutes, MCP needs a long-lived key.
 - Do NOT overwrite an existing `mcpServers` block — merge.
 - Do NOT mount Grep MCP without an API key — anonymous requests get 401.
 - Do NOT use this route for direct research — `grep-api.js run` is faster than going through MCP.

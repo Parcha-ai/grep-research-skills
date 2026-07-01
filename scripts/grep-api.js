@@ -2,9 +2,20 @@
 /**
  * GREP API Client - Submit research jobs and poll for results
  *
- * Targets the v2 surface at `/api/v2/*`. Auth is Descope JWT or a `grp_*` API
- * key, both sent as `Authorization: Bearer <token>` — reads
- * ~/.grep/session.json (populated by scripts/auth.js).
+ * Auto-selects the API surface based on the auth method in ~/.grep/session.json
+ * (populated by scripts/auth.js):
+ *
+ *   - API key (`parcha-*`)  → /api/v2 (full surface: continue, cancel,
+ *     timeline, attachments, idempotency, cursor pagination)
+ *   - Descope session JWT   → /api/v1 (core surface: submit, status, result,
+ *     jobs, files)
+ *
+ * WHY: /api/v2 is an OAuth protected resource. It only accepts `parcha-*` API
+ * keys or OAuth access tokens minted for the `<host>/api/v2` resource (RFC 8707
+ * audience check). Session JWTs from the email-OTP login flow carry no /api/v2
+ * audience claim, so v2 rejects them with 401 "Invalid OAuth access token".
+ * v1 validates plain session JWTs, so JWT sessions route there.
+ * Override with GREP_API_BASE_PATH to force a surface.
  *
  * Usage:
  *   node grep-api.js run "What is quantum computing?" --effort=low
@@ -32,7 +43,39 @@ const DESCOPE_BASE_URL = 'https://api.descope.com';
 const GREP_UI_BASE = process.env.GREP_UI_BASE
   || GREP_API_BASE.replace('://api.', '://').replace('://preview-api.', '://preview.');
 
-const BASE_PATH = process.env.GREP_API_BASE_PATH || '/api/v2';
+// Base path selection — see the header comment for why JWT sessions use v1.
+// Reads the session file on each call (cheap) so a mid-run `set-api-key`
+// takes effect without restarting.
+function basePath() {
+  if (process.env.GREP_API_BASE_PATH) return process.env.GREP_API_BASE_PATH;
+  const session = loadSession();
+  return session && session.apiKey ? '/api/v2' : '/api/v1';
+}
+
+function isV1() {
+  return basePath().endsWith('/v1');
+}
+
+// Job-detail GET path. v1 omits status_messages unless asked (they carry the
+// live progress stream AND the final report on v1); v2 inlines the report on
+// `report.markdown` and has no such param.
+function jobDetailPath(jobIdOrSlug) {
+  const qs = isV1() ? '?include_status_messages=true' : '';
+  return `${basePath()}/research/${jobIdOrSlug}${qs}`;
+}
+
+// Guard for commands that only exist on the v2 surface.
+function requireV2(commandName) {
+  if (isV1()) {
+    console.error(JSON.stringify({
+      error: 'api_key_required',
+      message: `\`${commandName}\` is only available on API v2, which requires a GREP API key. `
+        + `Your session uses email-OTP JWT auth, which v2 rejects (it's an OAuth protected resource). `
+        + `Create a key at ${GREP_UI_BASE}/api-keys, then run: node auth.js set-api-key <key>`,
+    }, null, 2));
+    process.exit(1);
+  }
+}
 
 // Map legacy depth vocab to canonical effort vocab.
 const DEPTH_TO_EFFORT = {
@@ -118,8 +161,8 @@ async function getValidToken() {
   return session.sessionJwt;
 }
 
-// Build the Authorization header. v2 only — Bearer <Descope JWT> or
-// Bearer <grp_* API key>, both fetched from getValidToken (which reads
+// Build the Authorization header — Bearer <Descope JWT> or
+// Bearer <parcha-* API key>, both fetched from getValidToken (which reads
 // ~/.grep/session.json and refreshes the JWT proactively).
 async function buildAuthHeaders() {
   const token = await getValidToken();
@@ -188,12 +231,12 @@ function buildSubmitBody(query, options = {}) {
 
 async function submitResearch(query, options = {}) {
   const body = buildSubmitBody(query, options);
-  const result = await api('POST', `${BASE_PATH}/research`, body);
+  const result = await api('POST', `${basePath()}/research`, body);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function checkStatus(jobIdOrSlug) {
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
+  const result = await api('GET', jobDetailPath(jobIdOrSlug));
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -208,7 +251,7 @@ async function getResult(jobIdOrSlug, options = {}) {
 
   // Single GET path — print whatever the server has now and exit 0
   if (options.noWait) {
-    const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
+    const result = await api('GET', jobDetailPath(jobIdOrSlug));
     const report = extractReport(result);
     const slug = result.slug || jobIdOrSlug;
     const jobUrl = `${GREP_UI_BASE}/research/${slug}`;
@@ -235,7 +278,7 @@ async function getResult(jobIdOrSlug, options = {}) {
   while ((Date.now() - startedAt) / 1000 < maxWaitSeconds) {
     attempt++;
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}`);
+    const result = await api('GET', jobDetailPath(jobIdOrSlug));
     const status = result.status;
     slug = result.slug || slug;
 
@@ -294,12 +337,17 @@ async function getResult(jobIdOrSlug, options = {}) {
 }
 
 async function listJobs() {
-  const result = await api('GET', `${BASE_PATH}/research`);
+  const result = await api('GET', `${basePath()}/research`);
   console.log(JSON.stringify(result, null, 2));
 }
 
+// v1 exposes workspace files under /session-files; v2 renamed it to /files.
+function filesSegment() {
+  return isV1() ? 'session-files' : 'files';
+}
+
 async function listFiles(jobIdOrSlug) {
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/files`);
+  const result = await api('GET', `${basePath()}/research/${jobIdOrSlug}/${filesSegment()}`);
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -312,7 +360,7 @@ async function readFile(jobIdOrSlug, filePath) {
   // markdown/plaintext/binary, not JSON. Build the request inline so we can
   // dispatch on Content-Type.
   const headers = await buildAuthHeaders();
-  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/research/${jobIdOrSlug}/files/${encoded}`, { headers });
+  const res = await fetch(`${GREP_API_BASE}${basePath()}/research/${jobIdOrSlug}/${filesSegment()}/${encoded}`, { headers });
   if (res.status === 402) { await handle402(res); return; }
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
 
@@ -329,16 +377,19 @@ async function readFile(jobIdOrSlug, filePath) {
 }
 
 async function getTimeline(jobIdOrSlug) {
-  const result = await api('GET', `${BASE_PATH}/research/${jobIdOrSlug}/timeline`);
+  requireV2('timeline');
+  const result = await api('GET', `${basePath()}/research/${jobIdOrSlug}/timeline`);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function cancelJob(jobIdOrSlug) {
-  const result = await api('POST', `${BASE_PATH}/research/${jobIdOrSlug}/cancel`, {});
+  requireV2('cancel');
+  const result = await api('POST', `${basePath()}/research/${jobIdOrSlug}/cancel`, {});
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function continueJob(jobIdOrSlug, question, opts = {}) {
+  requireV2('continue');
   // Forward the same body fields a fresh POST /research accepts, EXCEPT
   // expert_id (the parent job's expert is inherited) and reference_jobs
   // (the parent IS the reference). Everything else is a valid continuation
@@ -353,18 +404,19 @@ async function continueJob(jobIdOrSlug, question, opts = {}) {
   if (opts.attachmentIds?.length)    body.attachment_ids = opts.attachmentIds;
   if (opts.renderRichReport)         body.render_rich_report = true;
   if (opts.webhookUrl)               body.webhook_url = opts.webhookUrl;
-  const result = await api('POST', `${BASE_PATH}/research/${jobIdOrSlug}/continue`, body);
+  const result = await api('POST', `${basePath()}/research/${jobIdOrSlug}/continue`, body);
   console.log(JSON.stringify(result, null, 2));
 }
 
 async function uploadAttachment(filePath) {
+  requireV2('upload');
   const fileBuf = fs.readFileSync(filePath);
   const fileName = path.basename(filePath);
   const form = new FormData();
   form.append('files', new Blob([fileBuf]), fileName);
 
   const headers = await buildAuthHeaders();
-  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/attachments`, {
+  const res = await fetch(`${GREP_API_BASE}${basePath()}/attachments`, {
     method: 'POST',
     headers,
     body: form,
@@ -375,8 +427,9 @@ async function uploadAttachment(filePath) {
 }
 
 async function deleteAttachment(id) {
+  requireV2('delete-attachment');
   const headers = await buildAuthHeaders();
-  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/attachments/${id}`, {
+  const res = await fetch(`${GREP_API_BASE}${basePath()}/attachments/${id}`, {
     method: 'DELETE',
     headers,
   });
@@ -386,8 +439,9 @@ async function deleteAttachment(id) {
 }
 
 async function listExperts() {
-  // Public, no auth.
-  const res = await fetch(`${GREP_API_BASE}${BASE_PATH}/experts`);
+  // Public, no auth. v2 mounts this at /experts, v1 at /research/experts.
+  const expertsPath = isV1() ? `${basePath()}/research/experts` : `${basePath()}/experts`;
+  const res = await fetch(`${GREP_API_BASE}${expertsPath}`);
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   console.log(JSON.stringify(await res.json(), null, 2));
 }
@@ -405,9 +459,13 @@ function sleep(ms) {
 }
 
 // Extract the report text from a completed job response.
-// The report is the last text_block message — it lives in content.content.text
-// (inner content) for text_block types. Falls back to content.text or content.status.
+// v2 shape: the rendered report.md rides on `report.markdown`.
+// v1 shape: the report is the last text_block status message — it lives in
+// content.content.text (inner content). Falls back to content.text or content.status.
 function extractReport(result) {
+  if (typeof result?.report?.markdown === 'string' && result.report.markdown.trim()) {
+    return result.report.markdown;
+  }
   const messages = result.status_messages || [];
   // Walk backwards — the report is typically one of the last messages
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -442,7 +500,7 @@ async function runResearch(query, options = {}) {
   // 1. Submit
   const submitBody = buildSubmitBody(query, options);
   process.stderr.write(`[research] Submitting (effort=${submitBody.effort}${submitBody.expert_id ? `, expert=${submitBody.expert_id}` : ''}${submitBody.output_type ? `, output_type=${submitBody.output_type}` : ''})...\n`);
-  const submitted = await api('POST', `${BASE_PATH}/research`, submitBody);
+  const submitted = await api('POST', `${basePath()}/research`, submitBody);
   const jobId = submitted.job_id || submitted.id;
   const slug = submitted.slug || jobId;
   if (!jobId) {
@@ -461,7 +519,7 @@ async function runResearch(query, options = {}) {
   while ((Date.now() - startedAt) / 1000 < maxWaitSeconds) {
     attempt++;
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    const result = await api('GET', `${BASE_PATH}/research/${slug}`);
+    const result = await api('GET', jobDetailPath(slug));
     const status = result.status;
 
     // Print any new status messages since last poll.
@@ -648,11 +706,13 @@ switch (command) {
     getDiscovery().catch(e => { console.error(e.message); process.exit(1); });
     break;
   default:
-    console.error('GREP API Client (v2)');
+    console.error('GREP API Client');
     console.error('');
     console.error('Auth:');
-    console.error('  Descope JWT or grp_* API key — Bearer auth, read from ~/.grep/session.json');
-    console.error('  (populated by `scripts/auth.js login <email>` or `set-api-key grp_xxx`).');
+    console.error('  Descope JWT or parcha-* API key — Bearer auth, read from ~/.grep/session.json');
+    console.error('  (populated by `scripts/auth.js login <email>` or `set-api-key parcha-xxx`).');
+    console.error('  API key sessions use /api/v2 (full surface). JWT sessions use /api/v1');
+    console.error('  (core surface — timeline/cancel/continue/attachments need an API key).');
     console.error('');
     console.error('Usage:');
     console.error('  node grep-api.js run "query"               Submit + poll to completion (blocking)');
@@ -692,7 +752,7 @@ switch (command) {
     console.error('Env:');
     console.error('  GREP_API_BASE              API host (default https://api.grep.ai; use https://preview-api.grep.ai for preview)');
     console.error('  GREP_UI_BASE               UI host for printed report links (auto-derived from GREP_API_BASE; override if needed)');
-    console.error('  GREP_API_BASE_PATH         Override the base path (rare; defaults to /api/v2)');
+    console.error('  GREP_API_BASE_PATH         Force a base path (rare; auto-selects /api/v2 for API keys, /api/v1 for JWT)');
     console.error('');
     console.error('Exit codes:');
     console.error('  0 success   1 error/auth   2 timeout (job still running)');
